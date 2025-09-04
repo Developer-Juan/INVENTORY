@@ -23,7 +23,7 @@ class SaleItem extends Model
         'unit_price' => 'decimal:2',
         'discount' => 'decimal:2',
         'total' => 'decimal:2',
-    ];
+    ]; 
 
     public function sale()
     {
