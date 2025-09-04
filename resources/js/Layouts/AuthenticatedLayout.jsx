@@ -174,7 +174,7 @@ export default function Authenticated({ auth, header, children }) {
                                 Productos
                             </ResponsiveNavLink>
                         )}
-                        {isAdmin || isDealer && (
+                        {isDealer || isAdmin && (
                             <>
                                 <ResponsiveNavLink href={route('sales.index')} active={route().current('sales.index')}>
                                     Ventas 
