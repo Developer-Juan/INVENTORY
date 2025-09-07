@@ -19,11 +19,11 @@ class SaleItem extends Model
     ];
 
     protected $casts = [
-        'quantity' => 'integer',
+        'quantity' => 'float',      // en vez de 'decimal:3'
         'unit_price' => 'decimal:2',
         'discount' => 'decimal:2',
         'total' => 'decimal:2',
-    ]; 
+    ];
 
     public function sale()
     {

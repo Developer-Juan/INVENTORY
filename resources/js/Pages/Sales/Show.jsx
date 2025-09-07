@@ -12,6 +12,13 @@ export default function Show({ sale: saleProp }) {
 
     if (!sale) return null;
 
+    const fmtQty = (q) =>
+        Number(q ?? 0).toLocaleString('es-CO', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 3,
+        });
+
+
     const customerId4 =
         sale.customer_id != null ? String(sale.customer_id).padStart(4, '0') : null;
 
@@ -137,7 +144,7 @@ export default function Show({ sale: saleProp }) {
                         <ul className="list-disc ml-6 space-y-1">
                             {sale.items.map((it) => (
                                 <li key={it.id}>
-                                    {it.inventory?.name} — {it.quantity} × $
+                                    {it.inventory?.name} — {fmtQty(it.quantity)} × $
                                     {Number(it.unit_price).toLocaleString('es-CO')} = $
                                     {Number(it.total).toLocaleString('es-CO')}
                                 </li>

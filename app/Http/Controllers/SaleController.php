@@ -111,18 +111,23 @@ class SaleController extends Controller
             ? str_pad((string) $data['customer_id'], 4, '0', STR_PAD_LEFT)
             : null;
 
+        // CHANGE: helpers de precisión y validación de múltiplos
+        $q3 = fn($v) => round((float) $v, 3); // cantidades
+        $m2 = fn($v) => round((float) $v, 2); // dinero
+        $isMultiple = function (float $value, float $step = 0.5): bool {
+            $eps = 1e-9;
+            $mod = fmod($value, $step);
+            return (abs($mod) < $eps) || (abs($mod - $step) < $eps);
+        };
+
         try {
-            $sale = DB::transaction(function () use ($data, $customerId) {
+            $sale = DB::transaction(function () use ($data, $customerId, $q3, $m2, $isMultiple) {
 
                 $actor = auth()->user();
                 $hasDealer = !empty($data['delivery_id']); // el select ahora lista dealers
                 $kmVal = isset($data['km']) ? (float) $data['km'] : 0.0;
 
-                // === Resolver location_id según reglas:
-                // 1) Si viene delivery_id (dealer elegido) => ubicación dealer de ese user.
-                // 2) Si NO viene delivery_id:
-                //    2a) Si el actor es dealer => su propia ubicación dealer.
-                //    2b) Si NO es dealer => ubicación asociada al actor o principal.
+                // === Resolver location_id según reglas (sin cambios) ===
                 if ($hasDealer) {
                     $locationId = Location::where('type', 'dealer')
                         ->where('user_id', (int) $data['delivery_id'])
@@ -134,7 +139,6 @@ class SaleController extends Controller
                         ]);
                     }
                 } else {
-                    // Dentro del else de "if ($hasDealer) { ... } else { ... }"
                     if ($actor->hasRole('dealer')) {
                         $locationId = Location::where('type', 'dealer')->where('user_id', $actor->id)->value('id');
                     } elseif ($actor->hasRole('admin') || $actor->hasRole('super-admin')) {
@@ -156,7 +160,6 @@ class SaleController extends Controller
                             ]);
                         }
                     } else {
-                        // admin/otros: ubicación del actor o principal
                         $locationId = Location::where('user_id', $actor->id)->value('id')
                             ?? Location::where('type', 'principal')->value('id');
 
@@ -170,10 +173,10 @@ class SaleController extends Controller
 
                 // === Normalizar + agrupar líneas por inventory_id
                 $lines = collect($data['items'] ?? [])
-                    ->map(function ($it) {
+                    ->map(function ($it) use ($q3) {
                         return [
                             'inventory_id' => (int) ($it['inventory_id'] ?? 0),
-                            'quantity' => (int) ($it['quantity'] ?? 0),
+                            'quantity' => $q3($it['quantity'] ?? 0),                  // CHANGE: decimal
                             'unit_price' => array_key_exists('unit_price', $it) && $it['unit_price'] !== null
                                 ? (float) $it['unit_price'] : null,
                             'discount' => isset($it['discount']) ? (float) $it['discount'] : 0.0,
@@ -182,14 +185,15 @@ class SaleController extends Controller
                     ->filter(fn($it) => $it['inventory_id'] > 0 && $it['quantity'] > 0)
                     ->groupBy('inventory_id')
                     ->map(function ($group) {
-                        $qtySum = (int) $group->sum('quantity');
-                        $discSum = (float) $group->sum('discount');
+                        // CHANGE: sumar como float (decimales)
+                        $qtySum = array_reduce($group->all(), fn($c, $g) => $c + (float) $g['quantity'], 0.0);
+                        $discSum = array_reduce($group->all(), fn($c, $g) => $c + (float) $g['discount'], 0.0);
 
                         $weighted = 0.0;
                         $hasUnit = false;
                         foreach ($group as $g) {
                             if ($g['unit_price'] !== null) {
-                                $weighted += $g['unit_price'] * $g['quantity'];
+                                $weighted += (float) $g['unit_price'] * (float) $g['quantity'];
                                 $hasUnit = true;
                             }
                         }
@@ -197,9 +201,9 @@ class SaleController extends Controller
 
                         return [
                             'inventory_id' => (int) $group->first()['inventory_id'],
-                            'quantity' => $qtySum,
-                            'unit_price' => $unit,             // null => caer a sale_price
-                            'discount' => round($discSum, 2) // descuento total por SKU
+                            'quantity' => $qtySum,             // CHANGE: decimal acumulado
+                            'unit_price' => $unit,               // null => caer a sale_price
+                            'discount' => round($discSum, 2)
                         ];
                     })
                     ->values();
@@ -210,11 +214,11 @@ class SaleController extends Controller
                     ]);
                 }
 
-                // === Cabecera mínima
+                // === Cabecera mínima (igual)
                 $sale = Sale::create([
                     'user_id' => $actor->id,
                     'customer_id' => $customerId,
-                    'delivery_id' => $hasDealer ? (int) $data['delivery_id'] : null, // es el dealer elegido (si aplica)
+                    'delivery_id' => $hasDealer ? (int) $data['delivery_id'] : null,
                     'location_id' => $locationId,
                     'km' => $hasDealer ? $kmVal : 0,
                     'discount' => 0,
@@ -231,10 +235,13 @@ class SaleController extends Controller
 
                 foreach ($lines as $it) {
                     $invId = (int) $it['inventory_id'];
-                    $qty = (int) $it['quantity'];
+                    $qty = $q3($it['quantity']); // CHANGE: decimal
 
-                    if ($qty <= 0) {
-                        throw ValidationException::withMessages(['items' => 'Cantidad inválida.']);
+                    // CHANGE: mínimo 0.5 y múltiplos de 0.5
+                    if ($qty < 0.5 || !$isMultiple($qty, 0.5)) {
+                        throw ValidationException::withMessages([
+                            'items' => "Cantidad inválida para el producto #{$invId}. Debe ser múltiplo de 0.5 y al menos 0.5.",
+                        ]);
                     }
 
                     $stock = InventoryStock::where('inventory_id', $invId)
@@ -242,10 +249,11 @@ class SaleController extends Controller
                         ->lockForUpdate()
                         ->first();
 
-                    $available = $stock ? ($stock->on_hand - $stock->reserved) : 0;
-                    if ($available < $qty) {
+                    // CHANGE: disponible y comparación en decimal
+                    $available = $q3(($stock->on_hand ?? 0) - ($stock->reserved ?? 0));
+                    if ($available + 1e-9 < $qty) {
                         throw ValidationException::withMessages([
-                            'items' => "Stock insuficiente del producto #{$invId} en la ubicación seleccionada.",
+                            'items' => "Stock insuficiente del producto #{$invId} en la ubicación seleccionada. Disponible: {$available}",
                         ]);
                     }
 
@@ -261,21 +269,21 @@ class SaleController extends Controller
                         ]);
                     }
 
-                    $disc = round((float) $it['discount'], 2);
-                    $lineTotal = max(0, ($qty * $unitPrice) - $disc);
+                    $disc = $m2($it['discount']);
+                    $lineTotal = max(0, ($qty * (float) $unitPrice) - $disc);
                     $subtotal += $lineTotal;
 
-                    // descuenta stock físico
-                    $stock->on_hand -= $qty;
+                    // CHANGE: descuenta stock físico en decimal
+                    $stock->on_hand = $q3($stock->on_hand - $qty);
                     $stock->save();
 
                     SaleItem::create([
                         'sale_id' => $sale->id,
                         'inventory_id' => $invId,
-                        'quantity' => $qty,
-                        'unit_price' => round($unitPrice, 2),
+                        'quantity' => $q3($qty),          // CHANGE: decimal
+                        'unit_price' => $m2($unitPrice),
                         'discount' => $disc,
-                        'total' => round($lineTotal, 2),
+                        'total' => $m2($lineTotal),
                     ]);
 
                     if (class_exists(InventoryMove::class)) {
@@ -283,22 +291,22 @@ class SaleController extends Controller
                             'inventory_id' => $invId,
                             'location_id' => $locationId,
                             'direction' => 'out',
-                            'quantity' => $qty,
+                            'quantity' => $q3($qty),            // CHANGE: decimal
                             'reason' => 'SALE',
                             'created_by' => $actor->id,
                         ]);
                     }
                 }
 
-                // === Totales cabecera
-                $headerDiscount = round((float) ($data['discount'] ?? 0), 2);
-                $headerTax = round((float) ($data['tax'] ?? 0), 2);
+                // === Totales cabecera (redondeos consistentes)
+                $headerDiscount = $m2($data['discount'] ?? 0);
+                $headerTax = $m2($data['tax'] ?? 0);
                 $total = max(0, $subtotal - $headerDiscount + $headerTax);
 
                 // === Pagos
                 $paid = 0.0;
                 foreach (($data['payments'] ?? []) as $p) {
-                    $amt = round((float) ($p['amount'] ?? 0), 2);
+                    $amt = $m2($p['amount'] ?? 0);
                     if ($amt <= 0) {
                         throw ValidationException::withMessages([
                             'payments' => 'El monto del pago debe ser mayor a 0.',
@@ -316,14 +324,14 @@ class SaleController extends Controller
                     Payment::create([
                         'sale_id' => $sale->id,
                         'payment_method_id' => (int) $p['payment_method_id'],
-                        'amount' => round((float) $p['amount'], 2),
+                        'amount' => $m2($p['amount'] ?? 0),
                         'reference' => $p['reference'] ?? null,
                         'paid_at' => now(),
                     ]);
                 }
 
-                // === Estado + pago al dealer por km (si aplica)
-                $balance = round($total - $paid, 2);
+                // === Estado + pago al dealer por km (igual)
+                $balance = $m2($total - $paid);
                 $status = $balance <= 0 ? 'pagado' : ($paid > 0 ? 'parcial' : 'debe');
 
                 $deliveryPay = 0.0;
@@ -338,14 +346,14 @@ class SaleController extends Controller
 
                 // === Actualizar cabecera
                 $sale->update([
-                    'subtotal' => round($subtotal, 2),
+                    'subtotal' => $m2($subtotal),
                     'discount' => $headerDiscount,
                     'tax' => $headerTax,
-                    'total' => round($total, 2),
-                    'paid' => round($paid, 2),
+                    'total' => $m2($total),
+                    'paid' => $m2($paid),
                     'balance' => $balance,
                     'status' => $status,
-                    'delivery_pay' => round($deliveryPay, 2),
+                    'delivery_pay' => $m2($deliveryPay),
                 ]);
 
                 return $sale;

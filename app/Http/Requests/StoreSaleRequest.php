@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\MultipleOf;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreSaleRequest extends FormRequest
@@ -29,7 +30,7 @@ class StoreSaleRequest extends FormRequest
             // Ítems
             'items' => ['required', 'array', 'min:1'],
             'items.*.inventory_id' => ['required', 'integer', 'exists:inventories,id'],
-            'items.*.quantity' => ['required', 'integer', 'min:1'],
+            'items.*.quantity' => ['required', 'numeric', 'min:0.5', new MultipleOf(0.5)],
             // unit_price puede venir (lo envías calculado) o puedes caer a sale_price en el controller
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0.01'],
             'items.*.discount' => ['nullable', 'numeric', 'min:0'],

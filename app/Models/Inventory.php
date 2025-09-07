@@ -21,9 +21,9 @@ class Inventory extends Model
 
     // Configuración para los precios y cantidades
     protected $casts = [
-        'quantity' => 'integer',  // Asegura que se maneje como entero
-        'purchase_price' => 'decimal:2', // Precio de compra con 2 decimales
-        'sale_price' => 'decimal:2', // Precio de venta con 2 decimales
+        'quantity' => 'decimal:3',   // <- AHORA DECIMAL
+        'purchase_price' => 'decimal:2',
+        'sale_price' => 'decimal:2',
     ];
 
     // Enum de unidades (puedes usar esto para garantizar que siempre sea 'pcs' o 'gr')

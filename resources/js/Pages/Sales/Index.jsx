@@ -21,42 +21,70 @@ export default function Index() {
 
     // ===== Carrito =====
     const [openCart, setOpenCart] = useState(false);
-    const [cart, setCart] = useState({});             // { [inventoryId]: qty | '' }
-    const [linePrice, setLinePrice] = useState({});   // precio TOTAL de la línea
+    const [cart, setCart] = useState({});           // { [inventoryId]: qty | '' }  (qty puede ser decimal)
+    const [linePrice, setLinePrice] = useState({}); // precio TOTAL de la línea
     const [cartItems, setCartItems] = useState([]);
     const [bulkFlow, setBulkFlow] = useState(false);
 
     const [submitting, setSubmitting] = useState(false);
 
-    // helpers cantidad
-    const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+    // ===== Helpers cantidad (decimales paso 0.5) =====
+    const STEP = 0.5;
+    const clampFloat = (n, min, max) => Math.max(min, Math.min(max, n));
+    const snapToStep = (n, step = STEP) => Math.round(n / step) * step;
+    const normalizeDecimal = (raw) => {
+        if (raw === '' || raw === null || raw === undefined) return '';
+        const s = String(raw).replace(',', '.');
+        const n = parseFloat(s);
+        return Number.isFinite(n) ? n : '';
+    };
+    const fmtQty = (q) => {
+        const n = Number(q ?? 0);
+        return Number.isFinite(n)
+            ? n.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 3 })
+            : '0';
+    };
+
     const setQty = (id, raw, max) => {
         if (raw === '') return setCart(prev => ({ ...prev, [id]: '' }));
-        const n = parseInt(raw, 10);
-        if (Number.isNaN(n)) return;
-        setCart(prev => ({ ...prev, [id]: clamp(n, 0, max) }));
+        const n = normalizeDecimal(raw);
+        if (n === '') return;
+        const limited = clampFloat(n, 0, Number(max ?? 0));
+        setCart(prev => ({ ...prev, [id]: limited }));
     };
+
     const commitQty = (id, max) => {
         setCart(prev => {
             const raw = prev[id];
-            const n = clamp(parseInt(raw ?? 0, 10) || 0, 0, max);
+            if (raw === '' || raw === undefined) return { ...prev, [id]: '' };
+            let n = normalizeDecimal(raw);
+            if (n === '') n = 0;
+            n = snapToStep(n);
+            n = clampFloat(n, 0, Number(max ?? 0));
+            if (n > 0 && n < STEP) n = STEP;
             return { ...prev, [id]: n };
         });
     };
+
     function addQty(id, delta, max) {
         setCart(prev => {
-            const cur = parseInt(prev[id] ?? 0, 10) || 0;
-            const nxt = clamp(cur + delta, 0, max);
-            return { ...prev, [id]: nxt };
+            const cur = normalizeDecimal(prev[id] ?? 0) || 0;
+            const next = cur === 0 && delta > 0 ? STEP : cur + (delta * STEP);
+            const snapped = snapToStep(next);
+            const limited = clampFloat(snapped, 0, Number(max ?? 0));
+            return { ...prev, [id]: limited };
         });
     }
 
-    // Total carrito (usa precio total por ítem si lo escribiste)
+    // Total carrito
     const totalSum = useMemo(() => {
         return Object.entries(cart).reduce((acc, [id, qtyRaw]) => {
             const prod = items.find(x => x.id === Number(id));
             if (!prod) return acc;
-            const qty = clamp(parseInt(qtyRaw ?? 0, 10) || 0, 0, prod.quantity ?? 0);
+
+            let qty = normalizeDecimal(qtyRaw ?? 0) || 0;
+            qty = snapToStep(qty);
+            qty = clampFloat(qty, 0, Number(prod.quantity ?? 0));
             if (qty <= 0) return acc;
 
             const override = linePrice[id];
@@ -102,33 +130,33 @@ export default function Index() {
         }
     }, [pd.pay, totalSum, bulkFlow, selected]);
 
-    // Limpia KM cuando no hay dealer
     useEffect(() => {
         if (!deliveryId) setKm('');
     }, [deliveryId]);
 
-    // Construye líneas para el checkout (unit_price = total/qty si escribiste total)
     function doCheckout() {
         const lines = Object.entries(cart)
             .map(([i, qtyRaw]) => {
                 const prod = items.find(x => x.id === Number(i));
                 if (!prod) return null;
 
-                const qty = clamp(parseInt(qtyRaw ?? 0, 10) || 0, 0, prod.quantity ?? 0);
-                if (qty <= 0) return null;
+                let qty = normalizeDecimal(qtyRaw ?? 0) || 0;
+                qty = snapToStep(qty);
+                qty = clampFloat(qty, 0, Number(prod.quantity ?? 0));
+                if (qty > 0 && qty < STEP) qty = STEP;
+                if (qty < STEP) return null;
 
                 const override = linePrice[i];
                 const hasOverride = override !== undefined && override !== '' && Number(override) > 0;
                 const lineTotal = hasOverride ? Number(override) : Number(prod.sale_price ?? 0) * qty;
-
                 if (!(lineTotal > 0)) return null;
 
                 const unit = lineTotal / qty;
-                const unitPrice = hasOverride ? parseFloat(unit.toFixed(2)) : null; // null => backend usa sale_price
+                const unitPrice = hasOverride ? parseFloat(unit.toFixed(2)) : null;
 
                 return {
                     inventory_id: Number(i),
-                    quantity: qty,
+                    quantity: parseFloat(qty.toFixed(3)),
                     unit_price: unitPrice,
                     discount: 0,
                 };
@@ -158,7 +186,6 @@ export default function Index() {
         setReference(''); setBulkFlow(false); setOpenPay(true);
     }
 
-    // helper para listar errores de validación
     function showErrors(errs) {
         const msgs = [];
         Object.entries(errs || {}).forEach(([k, v]) => {
@@ -190,7 +217,6 @@ export default function Index() {
             if (amount < totalSum && (!pd.name || !pd.phone))
                 return toast.error('Si es pago parcial, ingresa nombre y teléfono');
 
-            // 🚫 NO mandes km ni delivery_id si no hay dealer
             const payload = {
                 customer_id: customerIdStr,
                 discount: 0,
@@ -202,8 +228,6 @@ export default function Index() {
                 payload.delivery_id = Number(deliveryId);
                 payload.km = kmVal;
             }
-
-            console.log('POST /sales payload ->', payload);
 
             router.post(
                 route('sales.store'),
@@ -228,7 +252,6 @@ export default function Index() {
             return;
         }
 
-        // Pago de una venta existente
         if (!selected) return;
 
         router.post(
@@ -251,7 +274,7 @@ export default function Index() {
         <AuthenticatedLayout auth={auth} errors={errors} header={<h2 className="font-semibold text-xl">Ventas</h2>}>
             <Head title="Ventas" />
 
-            <div className="p-6 max-w-7xl mx-auto">
+            <div className="p-4 sm:p-6 max-w-7xl mx-auto">
                 {errors && Object.keys(errors).length > 0 && (
                     <div className="mb-4 p-3 rounded bg-red-50 text-red-700 text-sm">
                         <ul className="list-disc pl-5">
@@ -264,16 +287,63 @@ export default function Index() {
                     </div>
                 )}
 
-                <div className="mb-4 flex items-center justify-between">
-                    <button onClick={() => setOpenCart(true)} className="bg-blue-600 text-white px-4 py-2 rounded">
+                <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <button
+                        onClick={() => setOpenCart(true)}
+                        className="w-full sm:w-auto bg-blue-600 text-white px-4 py-2 rounded-md text-center"
+                    >
                         + Nueva Venta
                     </button>
                 </div>
 
-                {/* Tabla ventas */}
-                <div className="bg-white shadow-sm sm:rounded-lg overflow-auto">
+                {/* Cards en móvil, tabla en >= md */}
+                {/* Cards (mobile-first) */}
+                <div className="md:hidden space-y-3">
+                    {rows.map(s => (
+                        <div key={s.id} className="bg-white rounded-lg shadow p-4">
+                            <div className="flex items-center justify-between">
+                                <div className="font-semibold">#{s.id}</div>
+                                <span className={`text-xs px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
+                                        : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
+                                            : 'bg-red-100 text-red-800'
+                                    }`}>{s.status}</span>
+                            </div>
+                            <div className="mt-2 text-sm text-gray-600">
+                                {s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : ''}
+                            </div>
+                            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                                <div><span className="text-gray-500">Ítems:</span> {s.items_count ?? s.items?.length ?? '-'}</div>
+                                <div><span className="text-gray-500">Total:</span> ${Number(s.total).toLocaleString('es-CO')}</div>
+                                <div><span className="text-gray-500">Pagado:</span> ${Number(s.paid).toLocaleString('es-CO')}</div>
+                                <div><span className="text-gray-500">Saldo:</span> ${Number(s.balance).toLocaleString('es-CO')}</div>
+                            </div>
+                            <div className="mt-3 flex gap-3">
+                                {s.status !== 'pagado' && (
+                                    <button
+                                        onClick={() => beginPay(s)}
+                                        className="flex-1 text-yellow-700 border border-yellow-300 rounded-md py-2"
+                                    >
+                                        Saldar Deuda
+                                    </button>
+                                )}
+                                <Link
+                                    href={route('sales.show', s.id)}
+                                    className="flex-1 text-center text-indigo-700 border border-indigo-300 rounded-md py-2"
+                                >
+                                    Ver
+                                </Link>
+                            </div>
+                        </div>
+                    ))}
+                    {rows.length === 0 && (
+                        <div className="text-sm text-gray-500 text-center">Sin registros.</div>
+                    )}
+                </div>
+
+                {/* Tabla (desktop) */}
+                <div className="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-auto">
                     <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
+                        <thead className="bg-gray-50 sticky top-0 z-10">
                             <tr>
                                 {['#', 'Fecha', 'Ítems', 'Total', 'Pagado', 'Saldo', 'Estado', 'Acciones'].map(h => (
                                     <th key={h} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
@@ -293,8 +363,8 @@ export default function Index() {
                                     <td className="px-6 py-4 whitespace-nowrap">${Number(s.balance).toLocaleString('es-CO')}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <span className={`px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
-                                            : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
-                                                : 'bg-red-100 text-red-800'
+                                                : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
+                                                    : 'bg-red-100 text-red-800'
                                             }`}>{s.status}</span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap space-x-3">
@@ -316,7 +386,7 @@ export default function Index() {
 
                 {/* Paginación */}
                 {links.length > 0 && (
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    <div className="mt-4 flex flex-wrap gap-2 justify-center md:justify-start">
                         {links.map((link, i) => (
                             <Link
                                 key={i}
@@ -333,50 +403,86 @@ export default function Index() {
             {/* Modal Carrito */}
             <Dialog open={openCart} onClose={() => setOpenCart(false)} className="fixed inset-0 z-50">
                 <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
-                <div className="fixed inset-0 grid place-items-center p-4">
-                    <div className="relative z-50 bg-white p-6 rounded shadow-lg w-full max-w-4xl">
-                        <Dialog.Title className="text-lg font-bold mb-4">Carrito</Dialog.Title>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {items.map(prod => (
-                                <div key={prod.id} className="border p-4 rounded">
-                                    <h3 className="font-semibold">{prod.name}</h3>
-                                    <p>Stock: {prod.quantity}</p>
-                                    <p>Precio catálogo (unidad): ${Number(prod.sale_price ?? 0).toLocaleString('es-CO')}</p>
-
-                                    {/* Precio TOTAL del ítem */}
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        className="mt-2 w-full border px-2 py-1"
-                                        placeholder="Precio total del ítem (opcional)"
-                                        value={linePrice[prod.id] ?? ''}
-                                        onChange={e => setLinePrice(prev => ({ ...prev, [prod.id]: e.target.value }))}
-                                    />
-
-                                    {/* Cantidad editable + botones */}
-                                    <div className="mt-2 flex items-center space-x-2">
-                                        <button type="button" onClick={() => addQty(prod.id, -1, prod.quantity)} className="px-2 py-1 bg-gray-200 rounded">−</button>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            max={prod.quantity}
-                                            step="1"
-                                            className="w-16 text-center border rounded px-2 py-1"
-                                            value={cart[prod.id] === '' ? '' : (cart[prod.id] ?? 0)}
-                                            onChange={e => setQty(prod.id, e.target.value, prod.quantity)}
-                                            onBlur={() => commitQty(prod.id, prod.quantity)}
-                                        />
-                                        <button type="button" onClick={() => addQty(prod.id, 1, prod.quantity)} className="px-2 py-1 bg-gray-200 rounded">＋</button>
-                                    </div>
-                                </div>
-                            ))}
+                <div className="fixed inset-0 grid place-items-center p-0 sm:p-4">
+                    <div className="relative z-50 bg-white h-[100dvh] sm:h-auto sm:max-h-[90vh] w-full sm:w-full sm:max-w-4xl sm:rounded-xl shadow-lg overflow-hidden">
+                        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b">
+                            <Dialog.Title className="text-base sm:text-lg font-bold">Carrito</Dialog.Title>
+                            <button onClick={() => setOpenCart(false)} className="text-gray-500 hover:text-gray-700">✕</button>
                         </div>
 
-                        <div className="mt-6 border-t pt-4 flex justify-between items-center">
-                            <div><strong>Total:</strong> ${Number(totalSum).toLocaleString('es-CO')}</div>
-                            <button onClick={doCheckout} className="px-4 py-2 bg-green-600 text-white rounded">Continuar</button>
+                        <div className="px-4 sm:px-6 py-4 overflow-y-auto h-[calc(100dvh-160px)] sm:h-auto">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                                {items.map(prod => (
+                                    <div key={prod.id} className="border p-3 sm:p-4 rounded-lg">
+                                        <h3 className="font-semibold text-sm sm:text-base">{prod.name}</h3>
+                                        <p className="text-xs sm:text-sm text-gray-600">Stock: {fmtQty(prod.quantity)}</p>
+                                        <p className="text-xs sm:text-sm text-gray-600">
+                                            Precio catálogo (unidad): ${Number(prod.sale_price ?? 0).toLocaleString('es-CO')}
+                                        </p>
+
+                                        {/* Precio TOTAL del ítem */}
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            className="mt-2 w-full border px-2 py-2 rounded-md text-sm"
+                                            placeholder="Precio total del ítem (opcional)"
+                                            value={linePrice[prod.id] ?? ''}
+                                            onChange={e => setLinePrice(prev => ({ ...prev, [prod.id]: e.target.value }))}
+                                        />
+
+                                        {/* Cantidad + botones */}
+                                        <div className="mt-2 flex items-stretch gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => addQty(prod.id, -1, prod.quantity)}
+                                                className="w-10 h-10 sm:w-9 sm:h-9 grid place-items-center bg-gray-100 rounded-md text-xl"
+                                                aria-label="Restar"
+                                            >
+                                                −
+                                            </button>
+
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max={prod.quantity}
+                                                step="0.5"
+                                                lang="en"
+                                                inputMode="decimal"
+                                                className="flex-1 text-center border rounded-md px-2 py-2 text-base"
+                                                placeholder="0.5"
+                                                value={cart[prod.id] ?? ''}
+                                                onChange={e => setQty(prod.id, e.target.value, prod.quantity)}
+                                                onBlur={() => commitQty(prod.id, prod.quantity)}
+                                            />
+
+                                            <button
+                                                type="button"
+                                                onClick={() => addQty(prod.id, 1, prod.quantity)}
+                                                className="w-10 h-10 sm:w-9 sm:h-9 grid place-items-center bg-gray-100 rounded-md text-xl"
+                                                aria-label="Sumar"
+                                            >
+                                                ＋
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Footer fijo en móvil */}
+                        <div className="px-4 sm:px-6 py-3 border-t bg-white sticky bottom-0">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 justify-between">
+                                <div className="text-base sm:text-lg font-semibold">
+                                    Total: ${Number(totalSum).toLocaleString('es-CO')}
+                                </div>
+                                <button
+                                    onClick={doCheckout}
+                                    className="w-full sm:w-auto px-4 py-3 sm:py-2 bg-green-600 text-white rounded-md"
+                                >
+                                    Continuar
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -385,154 +491,164 @@ export default function Index() {
             {/* Modal Pago / Deuda / Crear venta */}
             <Dialog open={openPay} onClose={() => setOpenPay(false)} className="fixed inset-0 z-50">
                 <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
-                <div className="fixed inset-0 grid place-items-center p-4">
-                    <form onSubmit={submitPay} className="relative z-50 bg-white p-6 rounded-xl shadow-xl w-full max-w-xl space-y-4">
-                        <Dialog.Title className="text-lg font-bold">
-                            {bulkFlow ? 'Pago Carrito' : 'Saldar Deuda'}
-                        </Dialog.Title>
-
-                        {bulkFlow && (
-                            <>
-                                <div>
-                                    <label className="block text-sm">ID Cliente (4 dígitos, opcional)</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        max="9999"
-                                        step="1"
-                                        className="mt-1 w-full border px-2 py-1"
-                                        value={customerId}
-                                        onChange={e => setCustomerId(e.target.value)}
-                                        placeholder="0000"
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm">Dealer</label>
-                                    <select
-                                        className="mt-1 w-full border px-2 py-1"
-                                        value={deliveryId}
-                                        onChange={(e) => setDeliveryId(e.target.value)}
-                                    >
-                                        <option value="">— Sin dealer —</option>
-                                        {deliverers.map(u => (<option key={u.id} value={u.id}>{u.name}</option>))}
-                                    </select>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm">Distancia (km)</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        className="mt-1 w-full border px-2 py-1"
-                                        value={km}
-                                        onChange={e => setKm(e.target.value)}
-                                        placeholder={deliveryId ? '0.00' : 'Selecciona un dealer'}
-                                        disabled={!deliveryId}
-                                    />
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        Obligatorio solo si seleccionas un dealer.
-                                    </p>
-                                </div>
-                            </>
-                        )}
-
-                        <div>
-                            <label className="block text-sm">Método de pago</label>
-                            <select
-                                className="mt-1 w-full border px-2 py-1"
-                                value={methodId ?? ''}
-                                onChange={e => setMethodId(Number(e.target.value))}
-                            >
-                                {paymentMethods.map(m => (<option key={m.id} value={m.id}>{m.name}</option>))}
-                            </select>
+                <div className="fixed inset-0 grid place-items-center p-0 sm:p-4">
+                    <form
+                        onSubmit={submitPay}
+                        className="relative z-50 bg-white h-[100dvh] sm:h-auto sm:max-h-[90vh] w-full sm:w-full sm:max-w-xl sm:rounded-xl shadow-xl overflow-hidden flex flex-col"
+                    >
+                        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b">
+                            <Dialog.Title className="text-base sm:text-lg font-bold">
+                                {bulkFlow ? 'Pago Carrito' : 'Saldar Deuda'}
+                            </Dialog.Title>
+                            <button onClick={() => setOpenPay(false)} type="button" className="text-gray-500 hover:text-gray-700">✕</button>
                         </div>
 
-                        <div>
-                            <label className="block text-sm">Total</label>
-                            <div className="mt-1">
-                                ${Number(bulkFlow ? totalSum : (selected?.total || 0)).toLocaleString('es-CO')}
-                            </div>
-                        </div>
+                        <div className="px-4 sm:px-6 py-4 overflow-y-auto flex-1 space-y-4">
+                            {bulkFlow && (
+                                <>
+                                    <div>
+                                        <label className="block text-sm">ID Cliente (4 dígitos, opcional)</label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            max="9999"
+                                            step="1"
+                                            className="mt-1 w-full border px-3 py-2 rounded-md"
+                                            value={customerId}
+                                            onChange={e => setCustomerId(e.target.value)}
+                                            placeholder="0000"
+                                        />
+                                    </div>
 
-                        {!bulkFlow && selected && (
+                                    <div>
+                                        <label className="block text-sm">Dealer</label>
+                                        <select
+                                            className="mt-1 w-full border px-3 py-2 rounded-md"
+                                            value={deliveryId}
+                                            onChange={(e) => setDeliveryId(e.target.value)}
+                                        >
+                                            <option value="">— Sin dealer —</option>
+                                            {deliverers.map(u => (<option key={u.id} value={u.id}>{u.name}</option>))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm">Distancia (km)</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            className="mt-1 w-full border px-3 py-2 rounded-md"
+                                            value={km}
+                                            onChange={e => setKm(e.target.value)}
+                                            placeholder={deliveryId ? '0.00' : 'Selecciona un dealer'}
+                                            disabled={!deliveryId}
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Obligatorio solo si seleccionas un dealer.
+                                        </p>
+                                    </div>
+                                </>
+                            )}
+
                             <div>
-                                <label className="block text-sm">Ya pagado</label>
-                                <div className="mt-1">${Number(pd.paid).toLocaleString('es-CO')}</div>
+                                <label className="block text-sm">Método de pago</label>
+                                <select
+                                    className="mt-1 w-full border px-3 py-2 rounded-md"
+                                    value={methodId ?? ''}
+                                    onChange={e => setMethodId(Number(e.target.value))}
+                                >
+                                    {paymentMethods.map(m => (<option key={m.id} value={m.id}>{m.name}</option>))}
+                                </select>
                             </div>
-                        )}
 
-                        <div>
-                            <label htmlFor="pay" className="block text-sm">Monto a pagar ahora</label>
-                            <input
-                                id="pay"
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                className="mt-1 w-full border px-2 py-1"
-                                value={pd.pay}
-                                onChange={e => setPd(d => ({ ...d, pay: parseFloat(e.target.value) || 0 }))}
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm">Referencia (opcional)</label>
-                            <input
-                                type="text"
-                                className="mt-1 w-full border px-2 py-1"
-                                value={reference}
-                                onChange={e => setReference(e.target.value)}
-                                placeholder="# transacción / voucher"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm">Saldo pendiente:</label>
-                            <div className="mt-1">${Number(newDue).toLocaleString('es-CO')}</div>
-                        </div>
-
-                        {newDue > 0 && (
-                            <>
-                                <div>
-                                    <label className="block text-sm">Nombre deudor</label>
-                                    <input
-                                        name="customer_name"
-                                        type="text"
-                                        className="mt-1 w-full border px-2 py-1"
-                                        value={pd.name}
-                                        onChange={e => setPd(d => ({ ...d, name: e.target.value }))}
-                                    />
+                            <div>
+                                <label className="block text-sm">Total</label>
+                                <div className="mt-1 font-medium">
+                                    ${Number(bulkFlow ? totalSum : (selected?.total || 0)).toLocaleString('es-CO')}
                                 </div>
-                                <div>
-                                    <label className="block text-sm">Teléfono deudor</label>
-                                    <input
-                                        name="customer_phone"
-                                        type="text"
-                                        className="mt-1 w-full border px-2 py-1"
-                                        value={pd.phone}
-                                        onChange={e => setPd(d => ({ ...d, phone: e.target.value }))}
-                                    />
-                                </div>
-                            </>
-                        )}
+                            </div>
 
-                        <div className="flex justify-end space-x-2">
-                            <button
-                                type="button"
-                                onClick={() => setOpenPay(false)}
-                                className="px-3 py-1"
-                                disabled={submitting}
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                type="submit"
-                                className={`px-3 py-1 text-white rounded ${submitting ? 'bg-gray-400' : 'bg-blue-600'}`}
-                                disabled={submitting}
-                            >
-                                {submitting ? 'Procesando…' : 'Confirmar'}
-                            </button>
+                            {!bulkFlow && selected && (
+                                <div>
+                                    <label className="block text-sm">Ya pagado</label>
+                                    <div className="mt-1">${Number(pd.paid).toLocaleString('es-CO')}</div>
+                                </div>
+                            )}
+
+                            <div>
+                                <label htmlFor="pay" className="block text-sm">Monto a pagar ahora</label>
+                                <input
+                                    id="pay"
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    className="mt-1 w-full border px-3 py-2 rounded-md"
+                                    value={pd.pay}
+                                    onChange={e => setPd(d => ({ ...d, pay: parseFloat(e.target.value) || 0 }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm">Referencia (opcional)</label>
+                                <input
+                                    type="text"
+                                    className="mt-1 w-full border px-3 py-2 rounded-md"
+                                    value={reference}
+                                    onChange={e => setReference(e.target.value)}
+                                    placeholder="# transacción / voucher"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm">Saldo pendiente:</label>
+                                <div className="mt-1">${Number(newDue).toLocaleString('es-CO')}</div>
+                            </div>
+
+                            {newDue > 0 && (
+                                <>
+                                    <div>
+                                        <label className="block text-sm">Nombre deudor</label>
+                                        <input
+                                            name="customer_name"
+                                            type="text"
+                                            className="mt-1 w-full border px-3 py-2 rounded-md"
+                                            value={pd.name}
+                                            onChange={e => setPd(d => ({ ...d, name: e.target.value }))}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm">Teléfono deudor</label>
+                                        <input
+                                            name="customer_phone"
+                                            type="text"
+                                            className="mt-1 w-full border px-3 py-2 rounded-md"
+                                            value={pd.phone}
+                                            onChange={e => setPd(d => ({ ...d, phone: e.target.value }))}
+                                        />
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        <div className="px-4 sm:px-6 py-3 border-t bg-white">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => setOpenPay(false)}
+                                    className="w-full sm:w-auto px-4 py-3 sm:py-2 border rounded-md"
+                                    disabled={submitting}
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="submit"
+                                    className={`w-full sm:w-auto px-4 py-3 sm:py-2 text-white rounded-md ${submitting ? 'bg-gray-400' : 'bg-blue-600'}`}
+                                    disabled={submitting}
+                                >
+                                    {submitting ? 'Procesando…' : 'Confirmar'}
+                                </button>
+                            </div>
                         </div>
                     </form>
                 </div>
