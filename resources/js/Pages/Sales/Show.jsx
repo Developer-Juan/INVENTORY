@@ -18,6 +18,11 @@ export default function Show({ sale: saleProp }) {
             maximumFractionDigits: 3,
         });
 
+    const fmtMoney = (n) =>
+        Number(n ?? 0).toLocaleString('es-CO', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2,
+        });
 
     const customerId4 =
         sale.customer_id != null ? String(sale.customer_id).padStart(4, '0') : null;
@@ -81,15 +86,15 @@ export default function Show({ sale: saleProp }) {
 
                     <p>
                         <span className="text-gray-600">Total:</span>{' '}
-                        ${Number(sale.total).toLocaleString('es-CO')}
+                        ${fmtMoney(sale.total)}
                     </p>
                     <p>
                         <span className="text-gray-600">Pagado:</span>{' '}
-                        ${Number(sale.paid).toLocaleString('es-CO')}
+                        ${fmtMoney(sale.paid)}
                     </p>
                     <p>
                         <span className="text-gray-600">Saldo:</span>{' '}
-                        ${Number(sale.balance).toLocaleString('es-CO')}
+                        ${fmtMoney(sale.balance)}
                     </p>
                 </div>
 
@@ -111,7 +116,7 @@ export default function Show({ sale: saleProp }) {
                             </p>
                             <p>
                                 <span className="text-gray-600">Tarifa delivery:</span>{' '}
-                                ${Number(sale.delivery_pay ?? 0).toLocaleString('es-CO')}
+                                ${fmtMoney(sale.delivery_pay ?? 0)}
                             </p>
                             <p className="flex items-center gap-2">
                                 <span className="text-gray-600">Estado pago domi:</span>{' '}
@@ -138,22 +143,33 @@ export default function Show({ sale: saleProp }) {
                 </div>
 
                 {/* Ítems */}
+                {/* Ítems */}
+                {/* Ítems */}
                 <div className="bg-white shadow-sm sm:rounded-lg p-6">
                     <h2 className="font-semibold mb-2">Ítems</h2>
                     {Array.isArray(sale.items) && sale.items.length ? (
                         <ul className="list-disc ml-6 space-y-1">
-                            {sale.items.map((it) => (
-                                <li key={it.id}>
-                                    {it.inventory?.name} — {fmtQty(it.quantity)} × $
-                                    {Number(it.unit_price).toLocaleString('es-CO')} = $
-                                    {Number(it.total).toLocaleString('es-CO')}
-                                </li>
-                            ))}
+                            {sale.items.map((it) => {
+                                const qty = Number(it.quantity ?? 0);
+                                const total = Number(it.total ?? 0);
+                                const unitType = it.inventory?.unit ?? ''; // ← aquí tomas la unidad real
+
+                                return (
+                                    <li key={it.id}>
+                                        {it.inventory?.name ?? `#${it.inventory_id}`} —{' '}
+                                        {qty.toLocaleString('es-CO', { maximumFractionDigits: 3 })}
+                                        {unitType ? ` ${unitType}` : ''} x{' '}
+                                        {total.toLocaleString('es-CO', { maximumFractionDigits: 2 })}
+                                    </li>
+                                );
+                            })}
                         </ul>
                     ) : (
                         <p className="text-gray-500">Sin ítems.</p>
                     )}
                 </div>
+
+
 
                 {/* Pagos */}
                 <div className="bg-white shadow-sm sm:rounded-lg p-6">
@@ -162,7 +178,7 @@ export default function Show({ sale: saleProp }) {
                         <ul className="list-disc ml-6 space-y-1">
                             {sale.payments.map((p) => (
                                 <li key={p.id}>
-                                    {p.method?.name}: ${Number(p.amount).toLocaleString('es-CO')}
+                                    {p.method?.name}: ${fmtMoney(p.amount)}
                                     {p.reference ? ` (ref: ${p.reference})` : ' (sin ref)'}
                                 </li>
                             ))}

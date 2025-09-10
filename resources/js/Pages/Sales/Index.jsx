@@ -158,6 +158,7 @@ export default function Index() {
                     inventory_id: Number(i),
                     quantity: parseFloat(qty.toFixed(3)),
                     unit_price: unitPrice,
+                    total_price: parseFloat(lineTotal.toFixed(2)),
                     discount: 0,
                 };
             })
@@ -304,8 +305,8 @@ export default function Index() {
                             <div className="flex items-center justify-between">
                                 <div className="font-semibold">#{s.id}</div>
                                 <span className={`text-xs px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
-                                        : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
-                                            : 'bg-red-100 text-red-800'
+                                    : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
+                                        : 'bg-red-100 text-red-800'
                                     }`}>{s.status}</span>
                             </div>
                             <div className="mt-2 text-sm text-gray-600">
@@ -363,8 +364,8 @@ export default function Index() {
                                     <td className="px-6 py-4 whitespace-nowrap">${Number(s.balance).toLocaleString('es-CO')}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <span className={`px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
-                                                : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
-                                                    : 'bg-red-100 text-red-800'
+                                            : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
+                                                : 'bg-red-100 text-red-800'
                                             }`}>{s.status}</span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap space-x-3">

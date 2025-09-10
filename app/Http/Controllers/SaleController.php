@@ -106,12 +106,7 @@ class SaleController extends Controller
     {
         $data = $request->validated();
 
-        // customer_id a 4 dígitos (string) o null
-        $customerId = isset($data['customer_id']) && $data['customer_id'] !== null
-            ? str_pad((string) $data['customer_id'], 4, '0', STR_PAD_LEFT)
-            : null;
-
-        // CHANGE: helpers de precisión y validación de múltiplos
+        // helpers
         $q3 = fn($v) => round((float) $v, 3); // cantidades
         $m2 = fn($v) => round((float) $v, 2); // dinero
         $isMultiple = function (float $value, float $step = 0.5): bool {
@@ -121,13 +116,19 @@ class SaleController extends Controller
         };
 
         try {
-            $sale = DB::transaction(function () use ($data, $customerId, $q3, $m2, $isMultiple) {
+            $sale = DB::transaction(function () use ($data, $q3, $m2, $isMultiple) {
 
                 $actor = auth()->user();
-                $hasDealer = !empty($data['delivery_id']); // el select ahora lista dealers
+
+                // customer_id a 4 dígitos
+                $customerId = isset($data['customer_id']) && $data['customer_id'] !== null
+                    ? str_pad((string) $data['customer_id'], 4, '0', STR_PAD_LEFT)
+                    : null;
+
+                $hasDealer = !empty($data['delivery_id']);
                 $kmVal = isset($data['km']) ? (float) $data['km'] : 0.0;
 
-                // === Resolver location_id según reglas (sin cambios) ===
+                // === Resolver location_id (DENTRO del closure) ===
                 if ($hasDealer) {
                     $locationId = Location::where('type', 'dealer')
                         ->where('user_id', (int) $data['delivery_id'])
@@ -139,16 +140,6 @@ class SaleController extends Controller
                         ]);
                     }
                 } else {
-                    if ($actor->hasRole('dealer')) {
-                        $locationId = Location::where('type', 'dealer')->where('user_id', $actor->id)->value('id');
-                    } elseif ($actor->hasRole('admin') || $actor->hasRole('super-admin')) {
-                        $locationId = Location::whereIn('type', ['principal', 'main'])->value('id')
-                            ?: Location::where('user_id', $actor->id)->value('id');
-                    } else {
-                        $locationId = Location::where('user_id', $actor->id)->value('id')
-                            ?: Location::whereIn('type', ['principal', 'main'])->value('id');
-                    }
-
                     if (method_exists($actor, 'hasRole') && $actor->hasRole('dealer')) {
                         $locationId = Location::where('type', 'dealer')
                             ->where('user_id', $actor->id)
@@ -161,7 +152,7 @@ class SaleController extends Controller
                         }
                     } else {
                         $locationId = Location::where('user_id', $actor->id)->value('id')
-                            ?? Location::where('type', 'principal')->value('id');
+                            ?? Location::whereIn('type', ['principal', 'main'])->value('id');
 
                         if (!$locationId) {
                             throw ValidationException::withMessages([
@@ -171,50 +162,25 @@ class SaleController extends Controller
                     }
                 }
 
-                // === Normalizar + agrupar líneas por inventory_id
+                // === NO agrupar líneas (no mezclar overrides por línea)
                 $lines = collect($data['items'] ?? [])
                     ->map(function ($it) use ($q3) {
                         return [
                             'inventory_id' => (int) ($it['inventory_id'] ?? 0),
-                            'quantity' => $q3($it['quantity'] ?? 0),                  // CHANGE: decimal
-                            'unit_price' => array_key_exists('unit_price', $it) && $it['unit_price'] !== null
-                                ? (float) $it['unit_price'] : null,
+                            'quantity' => $q3($it['quantity'] ?? 0),
+                            'total_price' => isset($it['total_price']) ? (float) $it['total_price'] : null,
+                            'unit_price' => isset($it['unit_price']) ? (float) $it['unit_price'] : null, // compat
                             'discount' => isset($it['discount']) ? (float) $it['discount'] : 0.0,
                         ];
                     })
                     ->filter(fn($it) => $it['inventory_id'] > 0 && $it['quantity'] > 0)
-                    ->groupBy('inventory_id')
-                    ->map(function ($group) {
-                        // CHANGE: sumar como float (decimales)
-                        $qtySum = array_reduce($group->all(), fn($c, $g) => $c + (float) $g['quantity'], 0.0);
-                        $discSum = array_reduce($group->all(), fn($c, $g) => $c + (float) $g['discount'], 0.0);
-
-                        $weighted = 0.0;
-                        $hasUnit = false;
-                        foreach ($group as $g) {
-                            if ($g['unit_price'] !== null) {
-                                $weighted += (float) $g['unit_price'] * (float) $g['quantity'];
-                                $hasUnit = true;
-                            }
-                        }
-                        $unit = $hasUnit && $qtySum > 0 ? $weighted / $qtySum : null;
-
-                        return [
-                            'inventory_id' => (int) $group->first()['inventory_id'],
-                            'quantity' => $qtySum,             // CHANGE: decimal acumulado
-                            'unit_price' => $unit,               // null => caer a sale_price
-                            'discount' => round($discSum, 2)
-                        ];
-                    })
                     ->values();
 
                 if ($lines->isEmpty()) {
-                    throw ValidationException::withMessages([
-                        'items' => 'No hay ítems válidos en la venta.',
-                    ]);
+                    throw ValidationException::withMessages(['items' => 'No hay ítems válidos en la venta.']);
                 }
 
-                // === Cabecera mínima (igual)
+                // === Cabecera (cero) con location_id resuelto
                 $sale = Sale::create([
                     'user_id' => $actor->id,
                     'customer_id' => $customerId,
@@ -230,26 +196,44 @@ class SaleController extends Controller
                     'status' => 'debe',
                 ]);
 
-                // === Validar stock, descontar y crear líneas
+                // === Líneas (total por línea = baseTotal - discount) SIN multiplicar qty × price cuando hay total_price
                 $subtotal = 0.0;
 
                 foreach ($lines as $it) {
                     $invId = (int) $it['inventory_id'];
-                    $qty = $q3($it['quantity']); // CHANGE: decimal
+                    $qty = $q3($it['quantity']);
 
-                    // CHANGE: mínimo 0.5 y múltiplos de 0.5
-                    if ($qty < 0.5 || !$isMultiple($qty, 0.5)) {
-                        throw ValidationException::withMessages([
-                            'items' => "Cantidad inválida para el producto #{$invId}. Debe ser múltiplo de 0.5 y al menos 0.5.",
-                        ]);
+                    // Validación por unidad del inventario
+                    $unitStr = (string) DB::table('inventories')->where('id', $invId)->value('unit');
+                    $isPieces = in_array(strtolower($unitStr), ['pcs', 'pieza', 'piezas', 'unidad', 'unidades']);
+                    $step = $isPieces ? 1.0 : 0.5;
+
+                    if ($isPieces) {
+                        if (abs($qty - round($qty)) > 1e-9) {
+                            throw ValidationException::withMessages([
+                                'items' => "Cantidad inválida para producto #{$invId}. Debe ser entera (pcs).",
+                            ]);
+                        }
+                    } else {
+                        if ($qty < $step || !$isMultiple($qty, $step)) {
+                            throw ValidationException::withMessages([
+                                'items' => "Cantidad inválida para producto #{$invId}. Debe ser múltiplo de {$step} y al menos {$step}.",
+                            ]);
+                        }
                     }
 
+                    // Stock en la ubicación
                     $stock = InventoryStock::where('inventory_id', $invId)
                         ->where('location_id', $locationId)
                         ->lockForUpdate()
                         ->first();
 
-                    // CHANGE: disponible y comparación en decimal
+                    if (!$stock) {
+                        throw ValidationException::withMessages([
+                            'items' => "No hay stock configurado para el producto #{$invId} en la ubicación seleccionada.",
+                        ]);
+                    }
+
                     $available = $q3(($stock->on_hand ?? 0) - ($stock->reserved ?? 0));
                     if ($available + 1e-9 < $qty) {
                         throw ValidationException::withMessages([
@@ -257,32 +241,38 @@ class SaleController extends Controller
                         ]);
                     }
 
-                    $unitPrice = $it['unit_price'];
-                    if ($unitPrice === null) {
-                        $unitPrice = (float) DB::table('inventories')
-                            ->where('id', $invId)
-                            ->value('sale_price');
-                    }
-                    if ($unitPrice <= 0) {
+                    // === Precio de la línea
+                    $disc = $m2($it['discount']);
+
+                    if ($it['total_price'] !== null) {
+                        // Flujo nuevo: total fijo por línea
+                        $lineTotal = max(0, $m2($it['total_price']) - $disc);
+                    } elseif ($it['unit_price'] !== null) {
+                        // Compatibilidad: si no llega total_price, calcula total como unit_price * qty
+                        // OJO: esto puede redondear distinto si el front prorratea. Ideal: enviar total_price.
+                        $lineTotal = max(0, $m2($it['unit_price'] * $qty) - $disc);
+                    } else {
                         throw ValidationException::withMessages([
-                            'items' => "El producto #{$invId} no tiene precio; envía unit_price.",
+                            'items' => "Falta total_price (o unit_price) en la línea del producto #{$invId}.",
                         ]);
                     }
 
-                    $disc = $m2($it['discount']);
-                    $lineTotal = max(0, ($qty * (float) $unitPrice) - $disc);
+                    // unit_price efectivo solo informativo
+                    $unitPriceEffective = $qty > 0 ? $m2($lineTotal / $qty) : $m2(0);
+
                     $subtotal += $lineTotal;
 
-                    // CHANGE: descuenta stock físico en decimal
+                    // Descontar stock físico
                     $stock->on_hand = $q3($stock->on_hand - $qty);
                     $stock->save();
 
+                    // Crear línea
                     SaleItem::create([
                         'sale_id' => $sale->id,
                         'inventory_id' => $invId,
-                        'quantity' => $q3($qty),          // CHANGE: decimal
-                        'unit_price' => $m2($unitPrice),
-                        'discount' => $disc,
+                        'quantity' => $q3($qty),
+                        'unit_price' => $unitPriceEffective, // informativo
+                        'discount' => $m2($disc),
                         'total' => $m2($lineTotal),
                     ]);
 
@@ -291,33 +281,37 @@ class SaleController extends Controller
                             'inventory_id' => $invId,
                             'location_id' => $locationId,
                             'direction' => 'out',
-                            'quantity' => $q3($qty),            // CHANGE: decimal
+                            'quantity' => $q3($qty),
                             'reason' => 'SALE',
                             'created_by' => $actor->id,
                         ]);
                     }
                 }
 
-                // === Totales cabecera (redondeos consistentes)
+                // Totales cabecera
                 $headerDiscount = $m2($data['discount'] ?? 0);
                 $headerTax = $m2($data['tax'] ?? 0);
-                $total = max(0, $subtotal - $headerDiscount + $headerTax);
+                $total = $m2(max(0, $subtotal - $headerDiscount + $headerTax));
 
-                // === Pagos
+                // Pagos
                 $paid = 0.0;
                 foreach (($data['payments'] ?? []) as $p) {
                     $amt = $m2($p['amount'] ?? 0);
                     if ($amt <= 0) {
-                        throw ValidationException::withMessages([
-                            'payments' => 'El monto del pago debe ser mayor a 0.',
-                        ]);
+                        throw ValidationException::withMessages(['payments' => 'El monto del pago debe ser mayor a 0.']);
                     }
-                    $paid += $amt;
+                    $paid = $m2($paid + $amt);
                 }
-                if ($paid > $total) {
-                    throw ValidationException::withMessages([
-                        'payments' => 'La suma de pagos excede el total.',
-                    ]);
+
+                // Comparación robusta a 2 decimales
+                if (function_exists('bccomp')) {
+                    if (bccomp((string) $paid, (string) $total, 2) === 1) {
+                        throw ValidationException::withMessages(['payments' => 'La suma de pagos excede el total.']);
+                    }
+                } else {
+                    if (($paid - $total) > 0.009) {
+                        throw ValidationException::withMessages(['payments' => 'La suma de pagos excede el total.']);
+                    }
                 }
 
                 foreach (($data['payments'] ?? []) as $p) {
@@ -330,37 +324,24 @@ class SaleController extends Controller
                     ]);
                 }
 
-                // === Estado + pago al dealer por km (igual)
                 $balance = $m2($total - $paid);
                 $status = $balance <= 0 ? 'pagado' : ($paid > 0 ? 'parcial' : 'debe');
 
-                $deliveryPay = 0.0;
-                if ($hasDealer && $kmVal > 0) {
-                    $deliveryPay = $this->fare->fareForKm($kmVal);
-                    $thr = (float) config('delivery.incentive_threshold', 150);
-                    $boni = (float) config('delivery.incentive_bonus', 4);
-                    if ($total > $thr) {
-                        $deliveryPay += $boni;
-                    }
-                }
-
-                // === Actualizar cabecera
+                // Actualiza cabecera
                 $sale->update([
                     'subtotal' => $m2($subtotal),
                     'discount' => $headerDiscount,
                     'tax' => $headerTax,
-                    'total' => $m2($total),
+                    'total' => $total,
                     'paid' => $m2($paid),
                     'balance' => $balance,
                     'status' => $status,
-                    'delivery_pay' => $m2($deliveryPay),
                 ]);
 
                 return $sale;
             });
 
-            return redirect()->route('sales.show', $sale)
-                ->with('success', 'Venta creada #' . $sale->id);
+            return redirect()->route('sales.show', $sale)->with('success', 'Venta creada #' . $sale->id);
 
         } catch (ValidationException $ve) {
             throw $ve;
@@ -378,6 +359,9 @@ class SaleController extends Controller
             ]);
         }
     }
+
+
+
 
 
     public function storePayment(Request $request, Sale $sale)
