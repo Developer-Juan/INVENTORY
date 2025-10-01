@@ -19,39 +19,25 @@ export default function Dashboard() {
     kpi = { salesSum: 0, paymentsSum: 0, ticketAvg: 0 },
   } = usePage().props;
 
-  // ===== DEBUG: ver datos cuando cambian =====
+  // Logs opcionales
   useEffect(() => {
-    console.log("[Dashboard] props recibidas:", { from, to, kpi });
-    console.log("[Dashboard] topProducts:", topProducts);
-    console.log("[Dashboard] topLocations:", topLocations);
-    console.log("[Dashboard] seriesDays:", seriesDays);
-    console.log("[Dashboard] payByMethod:", payByMethod);
-    // Útil para tablas rápidas en consola:
-    if (Array.isArray(seriesDays)) console.table(seriesDays);
-  }, [from, to, topProducts, topLocations, seriesDays, payByMethod, kpi]);
+    console.log("[Dashboard]", { from, to, kpi, topProducts, topLocations, seriesDays, payByMethod });
+  }, [from, to, kpi, topProducts, topLocations, seriesDays, payByMethod]);
 
-  // ===== DEBUG: eventos de navegación de Inertia =====
   useEffect(() => {
     const offStart = router.on("start", (e) => console.log("[Inertia] start", e));
     const offSuccess = router.on("success", (e) => console.log("[Inertia] success", e));
     const offError = router.on("error", (e) => console.error("[Inertia] error", e));
     const offFinish = router.on("finish", () => console.log("[Inertia] finish"));
-
     return () => { offStart(); offSuccess(); offError(); offFinish(); };
   }, []);
 
-  // Helpers
   const fmtMoney = (v) =>
     Number(v ?? 0).toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const todayStr = () => new Date().toISOString().slice(0, 10);
-  const daysAgoStr = (n) => {
-    const d = new Date();
-    d.setDate(d.getDate() - n);
-    return d.toISOString().slice(0, 10);
-  };
+  const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
 
-  // Fechas SIEMPRE como strings (controlados)
   const initialFrom = typeof from === "string" && from.length ? from : daysAgoStr(29);
   const initialTo = typeof to === "string" && to.length ? to : todayStr();
   const [range, setRange] = useState({ from: initialFrom, to: initialTo });
@@ -61,11 +47,7 @@ export default function Dashboard() {
     router.get(route("dashboard"), { from: range.from, to: range.to }, { preserveScroll: true });
   };
 
-  useEffect(() => {
-    console.log({ topProducts, topLocations, seriesDays, payByMethod, kpi });
-  }, [topProducts, topLocations, seriesDays, payByMethod, kpi]);
-
-  const pieColors = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2", "#fb7185", "#84cc16"];
+  const pieColors = ["#16a34a", "#22c55e", "#65a30d", "#4ade80", "#84cc16", "#15803d", "#a3e635", "#166534"];
 
   return (
     <AuthenticatedLayout
@@ -77,20 +59,12 @@ export default function Dashboard() {
 
       <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
 
-        {/* Panel de depuración opcional */}
-        {/* <details className="bg-white dark:bg-gray-800 rounded-xl shadow p-3">
-          <summary className="cursor-pointer">DEBUG (datos crudos)</summary>
-          <pre className="text-xs overflow-auto mt-2">
-            {JSON.stringify({ from, to, kpi, topProducts, topLocations, seriesDays, payByMethod }, null, 2)}
-          </pre>
-        </details> */}
-
-        {/* Filtro fechas */}
+        {/* Filtros */}
         <form
           onSubmit={submitRange}
           className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 flex flex-wrap items-end gap-3"
         >
-          <div>
+          <div className="min-w-[150px]">
             <label className="block text-sm text-gray-700 dark:text-gray-300">Desde</label>
             <input
               type="date"
@@ -100,7 +74,7 @@ export default function Dashboard() {
               onChange={(e) => setRange((r) => ({ ...r, from: e.target.value || "" }))}
             />
           </div>
-          <div>
+          <div className="min-w-[150px]">
             <label className="block text-sm text-gray-700 dark:text-gray-300">Hasta</label>
             <input
               type="date"
@@ -110,11 +84,11 @@ export default function Dashboard() {
               onChange={(e) => setRange((r) => ({ ...r, to: e.target.value || "" }))}
             />
           </div>
-          <div className="flex gap-2 ml-auto">
+          <div className="flex gap-2 ml-auto w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setRange({ from: daysAgoStr(6), to: todayStr() })}
-              className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600
+              className="flex-1 sm:flex-none px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600
                          text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
             >
               Últimos 7 días
@@ -122,12 +96,12 @@ export default function Dashboard() {
             <button
               type="button"
               onClick={() => setRange({ from: daysAgoStr(29), to: todayStr() })}
-              className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600
+              className="flex-1 sm:flex-none px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600
                          text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
             >
               Últimos 30 días
             </button>
-            <button className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
+            <button className="flex-1 sm:flex-none px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
               Aplicar
             </button>
           </div>
@@ -156,12 +130,12 @@ export default function Dashboard() {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={seriesDays}>
                 <CartesianGrid stroke="currentColor" strokeOpacity={0.15} />
-                <XAxis dataKey="date" tick={{ fill: "currentColor" }} />
-                <YAxis tick={{ fill: "currentColor" }} tickFormatter={(v) => `$${fmtMoney(v)}`} />
+                <XAxis dataKey="date" tick={{ fill: "currentColor", fontSize: 12 }} />
+                <YAxis tick={{ fill: "currentColor", fontSize: 12 }} tickFormatter={(v) => `$${fmtMoney(v)}`} />
                 <Tooltip formatter={(v) => `$ ${fmtMoney(v)}`} />
                 <Legend wrapperStyle={{ color: "inherit" }} />
-                <Line type="monotone" dataKey="sales" name="Ventas" stroke="#2563eb" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="payments" name="Pagos" stroke="#16a34a" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="sales" name="Ventas" stroke="#16a34a" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="payments" name="Pagos" stroke="#22c55e" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -169,33 +143,58 @@ export default function Dashboard() {
 
         {/* Top productos + Top ubicaciones */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Productos */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4">
             <div className="mb-2 font-semibold text-gray-900 dark:text-gray-100">Top productos (por cantidad)</div>
             <div className="h-72 text-gray-800 dark:text-gray-200">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={topProducts}>
+                <BarChart data={topProducts} barCategoryGap="20%">
                   <CartesianGrid stroke="currentColor" strokeOpacity={0.15} />
-                  <XAxis dataKey="name" tick={{ fill: "currentColor" }} />
-                  <YAxis tick={{ fill: "currentColor" }} />
+                  <XAxis dataKey="name" tick={{ fill: "currentColor", fontSize: 12 }} interval={0} tickMargin={8} />
+                  <YAxis tick={{ fill: "currentColor", fontSize: 12 }} />
                   <Tooltip formatter={(v, name) => name === "qty" ? [v, "Unidades"] : [`$ ${fmtMoney(v)}`, "Monto"]} />
                   <Legend wrapperStyle={{ color: "inherit" }} />
-                  <Bar dataKey="qty" name="Unidades" />
+                  {/* Forzar verde con fill/stroke y Cell por barra */}
+                  <Bar
+                    dataKey="qty"
+                    name="Unidades"
+                    fill="#16a34a"
+                    stroke="#14532d"
+                    strokeWidth={1}
+                    fillOpacity={1}
+                  >
+                    {topProducts.map((_, i) => (
+                      <Cell key={`prod-${i}`} fill={i % 2 ? "#16a34a" : "#22c55e"} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
 
+          {/* Ubicaciones */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4">
             <div className="mb-2 font-semibold text-gray-900 dark:text-gray-100">Top ubicaciones (por monto)</div>
             <div className="h-72 text-gray-800 dark:text-gray-200">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={topLocations}>
+                <BarChart data={topLocations} barCategoryGap="20%">
                   <CartesianGrid stroke="currentColor" strokeOpacity={0.15} />
-                  <XAxis dataKey="name" tick={{ fill: "currentColor" }} />
-                  <YAxis tick={{ fill: "currentColor" }} tickFormatter={(v) => `$${fmtMoney(v)}`} />
+                  <XAxis dataKey="name" tick={{ fill: "currentColor", fontSize: 12 }} interval={0} tickMargin={8} />
+                  <YAxis tick={{ fill: "currentColor", fontSize: 12 }} tickFormatter={(v) => `$${fmtMoney(v)}`} />
                   <Tooltip formatter={(v) => `$ ${fmtMoney(v)}`} />
                   <Legend wrapperStyle={{ color: "inherit" }} />
-                  <Bar dataKey="amount" name="Monto" />
+                  <Bar
+                    dataKey="amount"
+                    name="Monto"
+                    fill="#22c55e"
+                    stroke="#166534"
+                    strokeWidth={1}
+                    fillOpacity={1}
+                  >
+                    {topLocations.map((_, i) => (
+                      <Cell key={`loc-${i}`} fill={i % 2 ? "#22c55e" : "#84cc16"} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
