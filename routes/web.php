@@ -92,7 +92,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/sales/{sale}/cancel', [\App\Http\Controllers\SaleController::class, 'cancel'])
             ->name('sales.cancel');
 
-        //Administracion de cash 
+        //Administracion de cash controller
         Route::get('/cash', [CashController::class, 'index'])->name('cash.index');
         Route::post('/cash/transfer', [CashController::class, 'transfer'])->name('cash.transfer');
         Route::post('/cash/pickup', [CashController::class, 'pickup'])->name('cash.pickup');
