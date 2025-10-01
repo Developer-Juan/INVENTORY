@@ -68,7 +68,7 @@ export default function Index() {
         <AuthenticatedLayout
             auth={auth}
             errors={errors}
-            header={<h2 className="font-semibold text-xl">Stock por ubicación</h2>}
+            header={<h2 className="font-semibold text-xl text-gray-800 dark:text-gray-200">Stock por ubicación</h2>}
         >
             <Head title="Stock · Ubicaciones" />
 

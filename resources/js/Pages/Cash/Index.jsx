@@ -112,7 +112,7 @@ export default function CashIndex() {
         <AuthenticatedLayout
             auth={auth}
             errors={sharedErrors}
-            header={<h2 className="font-semibold text-xl">Caja por ubicación</h2>}
+            header={<h2 className="font-semibold text-xl text-gray-800 dark:text-gray-200">Caja por ubicación</h2>}
         >
             <Head title="Caja por ubicación" />
 
@@ -204,8 +204,8 @@ export default function CashIndex() {
                                     <td className="px-4 py-2">
                                         <span
                                             className={`px-2 py-0.5 rounded-full text-xs ${m.direction === "in"
-                                                    ? "bg-green-100 text-green-800"
-                                                    : "bg-red-100 text-red-800"
+                                                ? "bg-green-100 text-green-800"
+                                                : "bg-red-100 text-red-800"
                                                 }`}
                                         >
                                             {m.direction === "in" ? "Ingreso" : "Egreso"}

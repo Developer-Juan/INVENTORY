@@ -55,7 +55,7 @@ export default function Summary() {
         <AuthenticatedLayout
             auth={auth}
             errors={errors}
-            header={<h2 className="font-semibold text-xl">Stock (Totales por SKU)</h2>}
+            header={<h2 className="font-semibold text-xl text-gray-800 dark:text-gray-200">Stock (Totales por SKU)</h2>}
         >
             <Head title="Stock · Totales" />
 

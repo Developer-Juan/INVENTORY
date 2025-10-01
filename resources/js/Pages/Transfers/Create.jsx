@@ -191,7 +191,7 @@ export default function Create() {
         <AuthenticatedLayout
             auth={auth}
             errors={sharedErrors}
-            header={<h2 className="font-semibold text-xl">Transferencias de inventario</h2>}
+            header={<h2 className="font-semibold text-xl text-gray-800 dark:text-gray-200">Transferencias de inventario</h2>}
         >
             <Head title="Transferir stock" />
 

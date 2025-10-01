@@ -303,7 +303,7 @@ export default function Index() {
     }
 
     return (
-        <AuthenticatedLayout auth={auth} errors={errors} header={<h2 className="font-semibold text-xl">Ventas</h2>}>
+        <AuthenticatedLayout auth={auth} errors={errors} header={<h2 className="font-semibold text-xl text-gray-800 dark:text-gray-200">Ventas</h2>}>
             <Head title="Ventas" />
 
             <div className="p-4 sm:p-6 max-w-7xl mx-auto">

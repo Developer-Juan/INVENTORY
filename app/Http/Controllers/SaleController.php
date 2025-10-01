@@ -166,7 +166,7 @@ class SaleController extends Controller
                     }
                 }
 
-                // === NO agrupar líneas; permitimos override por ítem: items[*].location_id
+                // === NO agrupar líneas (permito override por línea con location_id si lo envías)
                 $lines = collect($data['items'] ?? [])
                     ->map(function ($it) use ($q3) {
                         return [
@@ -185,13 +185,15 @@ class SaleController extends Controller
                     throw ValidationException::withMessages(['items' => 'No hay ítems válidos en la venta.']);
                 }
 
-                // Cabecera
+                // === Cabecera
                 $sale = Sale::create([
                     'user_id' => $actor->id,
                     'customer_id' => $customerId,
                     'delivery_id' => $hasDealer ? (int) $data['delivery_id'] : null,
                     'location_id' => $locationId,
                     'km' => $hasDealer ? $kmVal : 0,
+                    'delivery_rate' => 0,   // se setean abajo
+                    'delivery_pay' => 0,
                     'discount' => 0,
                     'tax' => 0,
                     'subtotal' => 0,
@@ -202,7 +204,7 @@ class SaleController extends Controller
                 ]);
 
                 $subtotal = 0.0;
-                $totalsByLoc = []; // << acumula totales por ubicación para caja
+                $totalsByLoc = []; // para distribución de caja por ubicación
 
                 foreach ($lines as $it) {
                     $invId = (int) $it['inventory_id'];
@@ -216,7 +218,7 @@ class SaleController extends Controller
                         ]);
                     }
 
-                    // Validación por unidad del inventario
+                    // Validación por unidad
                     $unitStr = (string) DB::table('inventories')->where('id', $invId)->value('unit');
                     $isPieces = in_array(strtolower($unitStr), ['pcs', 'pieza', 'piezas', 'unidad', 'unidades']);
                     $step = $isPieces ? 1.0 : 0.5;
@@ -273,7 +275,7 @@ class SaleController extends Controller
                     $stock->on_hand = $q3($stock->on_hand - $qty);
                     $stock->save();
 
-                    // Guardar línea con location_id del origen
+                    // Guardar línea
                     $saleItem = SaleItem::create([
                         'sale_id' => $sale->id,
                         'inventory_id' => $invId,
@@ -283,9 +285,6 @@ class SaleController extends Controller
                         'discount' => $m2($disc),
                         'total' => $m2($lineTotal),
                     ]);
-
-                    // Acumula total por ubicación (para caja)
-                    $totalsByLoc[$lineLocationId] = ($totalsByLoc[$lineLocationId] ?? 0) + $lineTotal;
 
                     // Movimiento OUT
                     if (class_exists(InventoryMove::class)) {
@@ -300,14 +299,57 @@ class SaleController extends Controller
                             'created_by' => $actor->id,
                         ]);
                     }
+
+                    // Caja proporcional por ubicación
+                    $totalsByLoc[$lineLocationId] = ($totalsByLoc[$lineLocationId] ?? 0) + $lineTotal;
                 }
 
-                // Totales cabecera
+                // ===== Delivery: calcular pero NO sumarlo al total =====
+                $deliveryRate = 0.0; // cobro al cliente (no se suma al total de la venta aquí)
+                $deliveryPay = 0.0; // pago al dealer
+
+                if ($hasDealer && $kmVal > 0) {
+                    // tarifa (usa servicio si existe, si no fallback ENV)
+                    if (method_exists($this->fare, 'rate')) {
+                        $deliveryRate = $m2((float) $this->fare->rate($kmVal));
+                    } elseif (method_exists($this->fare, 'rateForKm')) {
+                        $deliveryRate = $m2((float) $this->fare->rateForKm($kmVal));
+                    } elseif (method_exists($this->fare, 'computeRate')) {
+                        $deliveryRate = $m2((float) $this->fare->computeRate($kmVal));
+                    } else {
+                        $deliveryRate = $m2($this->computeDeliveryRateFromEnv($kmVal));
+                    }
+
+                    // pago al dealer
+                    if (method_exists($this->fare, 'pay')) {
+                        $deliveryPay = $m2((float) $this->fare->pay($kmVal, $deliveryRate));
+                    } elseif (method_exists($this->fare, 'payForKm')) {
+                        $deliveryPay = $m2((float) $this->fare->payForKm($kmVal, $deliveryRate));
+                    } elseif (method_exists($this->fare, 'computePay')) {
+                        $deliveryPay = $m2((float) $this->fare->computePay($kmVal, $deliveryRate));
+                    } else {
+                        $percent = (float) env('DELIVERY_PAY_PERCENT', 1.0); // 100% por defecto
+                        $fixed = (float) env('DELIVERY_PAY_FIXED', 0);
+                        $minPay = (float) env('DELIVERY_PAY_MIN', 0);
+                        $maxPay = (float) env('DELIVERY_PAY_MAX', 0);
+                        $tmp = $fixed + ($deliveryRate * $percent);
+                        if ($minPay > 0)
+                            $tmp = max($minPay, $tmp);
+                        if ($maxPay > 0)
+                            $tmp = min($maxPay, $tmp);
+                        $deliveryPay = $m2($tmp);
+                    }
+
+                    // NO lo meto en $totalsByLoc, porque NO entra al total de la venta aquí.
+                }
+
+                // === Totales cabecera (SIN delivery_rate)
                 $headerDiscount = $m2($data['discount'] ?? 0);
                 $headerTax = $m2($data['tax'] ?? 0);
                 $total = $m2(max(0, $subtotal - $headerDiscount + $headerTax));
+                // ^^^ OJO: delivery_rate NO se suma aquí porque ya lo manejas en el total global.
 
-                // Pagos (crea registros y calcula paid)
+                // Pagos
                 $paid = 0.0;
                 foreach (($data['payments'] ?? []) as $p) {
                     $amt = $m2($p['amount'] ?? 0);
@@ -317,7 +359,7 @@ class SaleController extends Controller
                     $paid = $m2($paid + $amt);
                 }
 
-                // Valida que pagos no excedan total
+                // Validación pagos <= total (sin delivery)
                 if (function_exists('bccomp')) {
                     if (bccomp((string) $paid, (string) $total, 2) === 1) {
                         throw ValidationException::withMessages(['payments' => 'La suma de pagos excede el total.']);
@@ -341,12 +383,14 @@ class SaleController extends Controller
                 $balance = $m2($total - $paid);
                 $status = $balance <= 0 ? 'pagado' : ($paid > 0 ? 'parcial' : 'debe');
 
-                // Actualiza cabecera
+                // Guardar cabecera (con delivery_rate y delivery_pay pero sin tocar total)
                 $sale->update([
                     'subtotal' => $m2($subtotal),
                     'discount' => $headerDiscount,
                     'tax' => $headerTax,
-                    'total' => $total,
+                    'delivery_rate' => $deliveryRate, // guardo para mostrar/liquidar
+                    'delivery_pay' => $deliveryPay,  // lo que se paga al dealer
+                    'total' => $total,        // SIN delivery
                     'paid' => $m2($paid),
                     'balance' => $balance,
                     'status' => $status,
@@ -369,7 +413,7 @@ class SaleController extends Controller
 
                     $dist = [];
                     if ($sumTotals > 0) {
-                        // Reparto proporcional por ubicación según totales de líneas
+                        // Proporcional por ubicación según totales de líneas (sin delivery)
                         $acc = 0.0;
                         $keys = array_keys($totalsByLoc);
                         $last = end($keys);
@@ -392,7 +436,7 @@ class SaleController extends Controller
                         $dist[(int) $locationId] = $m2($cashIn);
                     }
 
-                    // Aplica a la caja por ubicación
+                    // Aplica movimientos de caja
                     foreach ($dist as $locId => $amt) {
                         $this->adjustLocationCash(
                             (int) $locId,
@@ -428,6 +472,9 @@ class SaleController extends Controller
             ]);
         }
     }
+
+
+
 
 
     public function storePayment(Request $request, Sale $sale)
@@ -872,6 +919,39 @@ class SaleController extends Controller
         return $dist;
     }
 
+
+    private function computeDeliveryRateFromEnv(float $km): float
+    {
+        // Lee tramos desde .env (ej: DELIVERY_DISTANCE_TIERS_JSON='[{"min":0,"max":2.5,"price":6}, ... ]')
+        $json = env('DELIVERY_DISTANCE_TIERS_JSON', '[]');
+        $tiers = json_decode($json, true) ?: [];
+
+        // Ordena por "min" asc
+        usort($tiers, fn($a, $b) => (float) ($a['min'] ?? 0) <=> (float) ($b['min'] ?? 0));
+
+        $price = 0.0;
+        foreach ($tiers as $t) {
+            $min = (float) ($t['min'] ?? 0);
+            $max = array_key_exists('max', $t) ? (float) $t['max'] : INF;
+            if ($km >= $min && $km <= $max) {
+                $price = (float) ($t['price'] ?? 0);
+                break;
+            }
+        }
+
+        // Si no encaja en ningún tramo, usa el último precio definido
+        if ($price === 0.0 && !empty($tiers)) {
+            $last = end($tiers);
+            $price = (float) ($last['price'] ?? 0);
+        }
+
+        $base = (float) env('DELIVERY_BASE_FEE', 0);
+
+        // Si tus "price" del JSON están en miles (6 => $6.000), descomenta:
+        // $price *= 1000;
+
+        return round($base + $price, 2);
+    }
 
 
 
