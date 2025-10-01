@@ -55,7 +55,7 @@ export default function Show({ sale: saleProp }) {
         <AuthenticatedLayout
             auth={auth}
             errors={errors}
-            header={<h2 className="font-semibold text-xl">Venta #{sale.id}</h2>}
+            header={<h2 className="font-semibold text-xl text-gray-800 dark:text-gray-200">Venta #{sale.id}</h2>}
         >
             <Head title={`Venta #${sale.id}`} />
 
