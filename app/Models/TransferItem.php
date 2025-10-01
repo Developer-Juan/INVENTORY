@@ -10,4 +10,13 @@ class TransferItem extends Model
     use HasFactory;
 
     protected $fillable = ['transfer_id', 'inventory_id', 'quantity'];
+
+    public function transfer()
+    {
+        return $this->belongsTo(Transfer::class);
+    }
+    public function inventory()
+    {
+        return $this->belongsTo(Inventory::class);
+    }
 }

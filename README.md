@@ -1,66 +1,142 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# 📦 Inventario & Ventas
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Sistema web para **gestión de inventario, ventas, caja por ubicación y transferencias**, construido con **Laravel + Inertia + React (Breeze, dark mode)** y **MySQL**.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Tabla de contenidos
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- [Descripción](#descripción)
+- [Arquitectura y stack](#arquitectura-y-stack)
+- [Menú y funcionalidades](#menú-y-funcionalidades)
+- [Roles y permisos](#roles-y-permisos)
+- [Modelo de datos (ER)](#modelo-de-datos-er)
+- [Lógica de negocio](#lógica-de-negocio)
+- [Wireframes / estructura de pantallas](#wireframes--estructura-de-pantallas)
+- [Instalación](#instalación)
+- [Variables de entorno](#variables-de-entorno)
+- [Comandos útiles](#comandos-útiles)
+- [Consultas de referencia](#consultas-de-referencia)
+- [Índices recomendados](#índices-recomendados)
+- [Roadmap](#roadmap)
+- [Licencia](#licencia)
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+## Descripción
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+El sistema permite:
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+- Registrar **ventas** con control estricto de **stock por ubicación**.
+- Administrar **productos** y existencias en **múltiples ubicaciones**.
+- **Transferir inventario** y **transferir/retirar efectivo** por ubicación.
+- Obtener **KPIs y gráficas** (top productos, top ubicaciones, ventas vs pagos, métodos de pago).
+- Operar en **modo oscuro** (Breeze + Tailwind).
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains over 2000 video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+> En este proyecto, una **venta efectiva** para el dashboard se define como aquella con **`sales.status = 'pagado'` y `sales.location_id NOT NULL`**.
 
-## Laravel Sponsors
+---
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the Laravel [Patreon page](https://patreon.com/taylorotwell).
+## Arquitectura y stack
 
-### Premium Partners
+- **Backend:** Laravel 10, PHP 8.2, Eloquent, Spatie Roles/Permissions.
+- **Frontend:** React 18, Inertia.js, Tailwind (Breeze con dark mode), Recharts.
+- **Base de datos:** MySQL 8 (compatible 5.7).
+- **Autenticación:** Breeze (sesiones).
+- **Patrones:** Servicios/Repos opcional, Controladores finos, Validaciones FormRequest (sugerido).
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Cubet Techno Labs](https://cubettech.com)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[Many](https://www.many.co.uk)**
-- **[Webdock, Fast VPS Hosting](https://www.webdock.io/en)**
-- **[DevSquad](https://devsquad.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[OP.GG](https://op.gg)**
-- **[WebReinvent](https://webreinvent.com/?utm_source=laravel&utm_medium=github&utm_campaign=patreon-sponsors)**
-- **[Lendio](https://lendio.com)**
+---
 
-## Contributing
+## Menú y funcionalidades
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+### Dashboard
+- KPIs: **Ventas**, **Pagos recibidos**, **Ticket promedio**.
+- Gráficas:
+  - **Líneas:** Ventas vs. Pagos por día (rango seleccionable).
+  - **Barras:** Top productos (por cantidad).
+  - **Barras:** Top ubicaciones (por monto).
+  - **Pie:** Distribución por método de pago.
+- Filtros: Desde/Hasta, atajos “Últimos 7/30 días”.
 
-## Code of Conduct
+### Productos
+- CRUD de inventarios (unidad, precio compra/venta).
+- Reglas de cantidad por unidad: `pcs` (enteros) vs fraccionables (múltiplos de **0.5**).
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+### Ventas
+- Crear/editar/anular ventas.
+- Ubicación obligatoria en cabecera o por línea (override).
+- **Validación de stock por ubicación** y movimientos `inventory_moves (out)`.
+- Registro de **pagos** (método, referencia, fecha).
+- Estados: `pagado | parcial | debe | anulada`.
+- Reverso de stock/caja al **anular**.
 
-## Security Vulnerabilities
+### Stock Totales
+- Consolidado global: on_hand/reserved/disponible.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+### Stock por Ubicación
+- Detalle por `location`.
+- Historial de `inventory_moves`.
 
-## License
+### Transferencias
+- **Inventario** entre ubicaciones (movimientos in/out espejo).
+- **Efectivo** entre ubicaciones (CASH_TRANSFER), con nota y sufijo “· se quedó sin efectivo” si el saldo final del origen va a 0.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+### Caja / Efectivo
+- Saldos por ubicación (`location_cashes`).
+- Movimientos (`cash_moves`): `SALE`, `SALE_PAYMENT`, `SALE_CANCEL`, `CASH_TRANSFER`, `CASH_PICKUP`.
+- Acciones admin: **Transferir** y **Recoger** efectivo.
+
+### Usuarios
+- Gestión de usuarios y roles/permisos (Spatie).
+
+---
+
+## Roles y permisos
+
+| Recurso / Acción           | super-admin | admin | dealer | vendedor |
+|----------------------------|:-----------:|:-----:|:------:|:--------:|
+| Dashboard (ver)            | ✅ | ✅ | ✅ | ✅ |
+| Productos (CRUD)           | ✅ | ✅ | ❌ | R |
+| Stock (ver)                | ✅ | ✅ | ✅ | ✅ |
+| Transferencias inventario  | ✅ | ✅ | ✅(solo propias) | ❌ |
+| Caja: ver movimientos      | ✅ | ✅ | ✅(propias) | ✅(propias) |
+| Caja: transferir/retirar   | ✅ | ✅ | ❌ | ❌ |
+| Ventas (crear)             | ✅ | ✅ | ✅ | ✅ |
+| Ventas (anular)            | ✅ | ✅ | ❌ | ❌ |
+| Usuarios (CRUD/roles)      | ✅ | ✅ | ❌ | ❌ |
+
+> *R = lectura*
+
+---
+
+## Modelo de datos (ER)
+
+> Diagrama Mermaid (se renderiza en GitHub):
+
+```mermaid
+erDiagram
+  users ||--o{ sales : "crea"
+  users ||--o{ transfers : "crea"
+  users ||--o{ cash_moves : "crea"
+
+  roles ||--o{ model_has_roles : ""
+  permissions ||--o{ model_has_permissions : ""
+
+  locations ||--o{ location_cashes : "1-1"
+  locations ||--o{ inventory_stocks : ""
+  locations ||--o{ inventory_moves : ""
+  locations ||--o{ cash_moves : ""
+  locations ||--o{ transfers : "origen/destino"
+
+  inventories ||--o{ inventory_stocks : ""
+  inventories ||--o{ inventory_moves : ""
+  inventories ||--o{ sale_items : ""
+
+  sales ||--o{ sale_items : ""
+  sales ||--o{ payments : ""
+  sales ||--o| sale_voids : "1-0/1"
+  sale_items ||--o{ inventory_moves : ""
+
+  payment_methods ||--o{ payments : ""
+
+  transfers ||--o{ transfer_items : ""

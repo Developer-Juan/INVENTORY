@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\CashController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SaleController;
@@ -30,7 +32,7 @@ Route::get('/', function () {
     ]);
 });
 
-Route::get('/dashboard', fn() => Inertia::render('Dashboard'))
+Route::get('/dashboard', DashboardController::class . '@index')
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
 
@@ -71,12 +73,30 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/transfers', [TransferController::class, 'store'])
         ->name('transfers.store');
 
+
+    Route::get('/transfers/{transfer}/lines', [TransferController::class, 'lines'])
+        ->name('transfers.lines');
+
+    Route::get('/transfers/{transfer}/items', [TransferController::class, 'items'])
+        ->name('transfers.items');
+
+
+
     // Administración de usuarios (solo admin con Spatie)
     Route::middleware(['role:admin'])->group(function () {
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::post('/users', [UserController::class, 'store'])->name('users.store');
         Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
         Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+        // routes/web.php
+        Route::post('/sales/{sale}/cancel', [\App\Http\Controllers\SaleController::class, 'cancel'])
+            ->name('sales.cancel');
+
+        //Administracion de cash 
+        Route::get('/cash', [CashController::class, 'index'])->name('cash.index');
+        Route::post('/cash/transfer', [CashController::class, 'transfer'])->name('cash.transfer');
+        Route::post('/cash/pickup', [CashController::class, 'pickup'])->name('cash.pickup');
+
     });
 
 

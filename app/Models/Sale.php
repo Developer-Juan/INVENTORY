@@ -9,6 +9,11 @@ class Sale extends Model
 {
     use HasFactory;
 
+    public const ST_DEBE = 'debe';
+    public const ST_PARCIAL = 'parcial';
+    public const ST_PAGADO = 'pagado';
+    public const ST_ANULADA = 'anulada';
+
     protected $fillable = [
         'user_id',
         'customer_id',
@@ -75,4 +80,10 @@ class Sale extends Model
             'status' => $status,
         ])->save();
     }
+
+    public function void()
+    {
+        return $this->hasOne(\App\Models\SaleVoid::class);
+    }
+
 }

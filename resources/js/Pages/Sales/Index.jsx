@@ -16,12 +16,21 @@ export default function Index() {
         flash = {},
     } = usePage().props;
 
+    // Solo admin / super-admin
+    const isAdmin = useMemo(() => {
+        const rolesRaw = auth?.user?.roles ?? auth?.roles ?? [];
+        const roles = Array.isArray(rolesRaw)
+            ? rolesRaw.map(r => (typeof r === 'string' ? r : r?.name)).filter(Boolean)
+            : [];
+        return roles.includes('admin') || roles.includes('super-admin');
+    }, [auth]);
+
     const rows = Array.isArray(sales) ? sales : (sales?.data ?? []);
     const links = Array.isArray(sales) ? [] : (sales?.links ?? []);
 
     // ===== Carrito =====
     const [openCart, setOpenCart] = useState(false);
-    const [cart, setCart] = useState({});           // { [inventoryId]: qty | '' }  (qty puede ser decimal)
+    const [cart, setCart] = useState({});           // { [inventoryId]: qty | '' }
     const [linePrice, setLinePrice] = useState({}); // precio TOTAL de la línea
     const [cartItems, setCartItems] = useState([]);
     const [bulkFlow, setBulkFlow] = useState(false);
@@ -74,6 +83,28 @@ export default function Index() {
             const limited = clampFloat(snapped, 0, Number(max ?? 0));
             return { ...prev, [id]: limited };
         });
+    }
+
+    // ---- Anular venta (solo admin)
+    function cancelSale(s) {
+        if (!s) return;
+        const reason = window.prompt('Motivo de anulación (opcional):', '');
+        if (!window.confirm(`¿Anular la venta #${s.id}? Esto devolverá el stock.`)) return;
+
+        router.post(
+            route('sales.cancel', s.id),
+            { reason: reason || null },
+            {
+                preserveScroll: true,
+                onStart: () => setSubmitting(true),
+                onFinish: () => setSubmitting(false),
+                onSuccess: () => toast.success(`Venta #${s.id} anulada`),
+                onError: (errs) => {
+                    console.error('Sales.cancel validation errors:', errs);
+                    showErrors(errs);
+                },
+            }
+        );
     }
 
     // Total carrito
@@ -297,17 +328,19 @@ export default function Index() {
                     </button>
                 </div>
 
-                {/* Cards en móvil, tabla en >= md */}
                 {/* Cards (mobile-first) */}
                 <div className="md:hidden space-y-3">
                     {rows.map(s => (
                         <div key={s.id} className="bg-white rounded-lg shadow p-4">
                             <div className="flex items-center justify-between">
                                 <div className="font-semibold">#{s.id}</div>
-                                <span className={`text-xs px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
-                                    : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
-                                        : 'bg-red-100 text-red-800'
-                                    }`}>{s.status}</span>
+                                <span className={
+                                    `text-xs px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800' :
+                                        s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800' :
+                                            s.status === 'anulada' ? 'bg-gray-200 text-gray-700' :
+                                                'bg-red-100 text-red-800'
+                                    }`
+                                }>{s.status}</span>
                             </div>
                             <div className="mt-2 text-sm text-gray-600">
                                 {s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : ''}
@@ -319,7 +352,7 @@ export default function Index() {
                                 <div><span className="text-gray-500">Saldo:</span> ${Number(s.balance).toLocaleString('es-CO')}</div>
                             </div>
                             <div className="mt-3 flex gap-3">
-                                {s.status !== 'pagado' && (
+                                {s.status !== 'pagado' && s.status !== 'anulada' && (
                                     <button
                                         onClick={() => beginPay(s)}
                                         className="flex-1 text-yellow-700 border border-yellow-300 rounded-md py-2"
@@ -333,6 +366,16 @@ export default function Index() {
                                 >
                                     Ver
                                 </Link>
+
+                                {isAdmin && s.status !== 'anulada' && (
+                                    <button
+                                        onClick={() => cancelSale(s)}
+                                        className="flex-1 text-white bg-red-600 hover:bg-red-700 rounded-md py-2 disabled:opacity-50"
+                                        disabled={submitting}
+                                    >
+                                        Anular
+                                    </button>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -363,18 +406,31 @@ export default function Index() {
                                     <td className="px-6 py-4 whitespace-nowrap">${Number(s.paid).toLocaleString('es-CO')}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">${Number(s.balance).toLocaleString('es-CO')}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className={`px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
-                                            : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
-                                                : 'bg-red-100 text-red-800'
-                                            }`}>{s.status}</span>
+                                        <span className={
+                                            `px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800' :
+                                                s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800' :
+                                                    s.status === 'anulada' ? 'bg-gray-200 text-gray-700' :
+                                                        'bg-red-100 text-red-800'
+                                            }`
+                                        }>{s.status}</span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap space-x-3">
-                                        {s.status !== 'pagado' && (
+                                        {s.status !== 'pagado' && s.status !== 'anulada' && (
                                             <button onClick={() => beginPay(s)} className="text-yellow-600 hover:text-yellow-900">
                                                 Saldar Deuda
                                             </button>
                                         )}
                                         <Link href={route('sales.show', s.id)} className="text-indigo-600 hover:text-indigo-900">Ver</Link>
+
+                                        {isAdmin && s.status !== 'anulada' && (
+                                            <button
+                                                onClick={() => cancelSale(s)}
+                                                className="text-red-600 hover:text-red-900 disabled:opacity-50"
+                                                disabled={submitting}
+                                            >
+                                                Anular
+                                            </button>
+                                        )}
                                     </td>
                                 </tr>
                             ))}

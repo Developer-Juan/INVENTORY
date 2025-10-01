@@ -43,6 +43,41 @@ export default function Create() {
         quantity: 1,
     });
 
+    // -------- Preview (modal ojito) --------
+    const [preview, setPreview] = useState({
+        open: false,
+        loading: false,
+        header: null, // {id, from, to, created_at, note, status, lines_count, qty_sum}
+        items: [], // [{inventory_id,name,unit,quantity}]
+        error: null,
+    });
+
+    async function openPreview(t) {
+        try {
+            setPreview((p) => ({ ...p, open: true, loading: true, error: null, items: [], header: null }));
+            const url = typeof route === "function" ? route("transfers.items", t.id) : `/transfers/${t.id}/items`;
+            const res = await fetch(url, {
+                headers: { "X-Requested-With": "XMLHttpRequest", Accept: "application/json" },
+                credentials: "same-origin",
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            setPreview({ open: true, loading: false, header: data, items: data.items || [], error: null });
+        } catch {
+            setPreview((p) => ({ ...p, loading: false, error: "No se pudieron cargar los ítems." }));
+        }
+    }
+    function closePreview() {
+        setPreview({ open: false, loading: false, header: null, items: [], error: null });
+    }
+    useEffect(() => {
+        function onEsc(e) {
+            if (e.key === "Escape") closePreview();
+        }
+        if (preview.open) window.addEventListener("keydown", onEsc);
+        return () => window.removeEventListener("keydown", onEsc);
+    }, [preview.open]);
+
     // Buscar inventarios (autocomplete)
     useEffect(() => {
         let abort = false;
@@ -393,8 +428,7 @@ export default function Create() {
                     <div className="flex justify-end">
                         <button
                             type="submit"
-                            className={`px-5 py-2 rounded-lg text-white ${canSubmit ? "bg-green-600" : "bg-gray-400"
-                                }`}
+                            className={`px-5 py-2 rounded-lg text-white ${canSubmit ? "bg-green-600" : "bg-gray-400"}`}
                             disabled={!canSubmit}
                         >
                             {form.processing ? "Procesando…" : "Transferir"}
@@ -414,10 +448,25 @@ export default function Create() {
                     )}
                     {histRows.map((t) => (
                         <div key={t.id} className="rounded-xl border bg-white p-4">
-                            <div className="flex justify-between">
+                            <div className="flex justify-between items-center">
                                 <div className="font-semibold">#{t.id}</div>
-                                <div className="text-xs text-gray-500">
-                                    {t.created_at ? new Date(t.created_at).toLocaleString("es-CO") : ""}
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => openPreview(t)}
+                                        className="p-1.5 rounded hover:bg-gray-100"
+                                        title="Ver ítems transferidos"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"
+                                                d="M2.036 12.322a1.012 1.012 0 010-.644C3.423 7.51 7.36 5 12 5c4.64 0 8.577 2.51 9.964 6.678.07.21.07.434 0 .644C20.577 16.49 16.64 19 12 19c-4.64 0-8.577-2.51-9.964-6.678z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"
+                                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        </svg>
+                                    </button>
+                                    <div className="text-xs text-gray-500">
+                                        {t.created_at ? new Date(t.created_at).toLocaleString("es-CO") : ""}
+                                    </div>
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-2 mt-2 text-sm">
@@ -445,8 +494,7 @@ export default function Create() {
                             <div className="mt-2 flex items-center justify-between text-xs">
                                 <span>{t.creator?.name ?? "—"}</span>
                                 <span
-                                    className={`px-2 py-0.5 rounded-full ${t.status === "done" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-700"
-                                        }`}
+                                    className={`px-2 py-0.5 rounded-full ${t.status === "done" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-700"}`}
                                 >
                                     {t.status}
                                 </span>
@@ -469,6 +517,7 @@ export default function Create() {
                                 <th className="px-4 py-3 text-left">Nota</th>
                                 <th className="px-4 py-3 text-left">Creado por</th>
                                 <th className="px-4 py-3 text-left">Estado</th>
+                                <th className="px-4 py-3 text-left">Ver</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-100">
@@ -488,18 +537,32 @@ export default function Create() {
                                     <td className="px-4 py-2">{t.creator?.name ?? "—"}</td>
                                     <td className="px-4 py-2">
                                         <span
-                                            className={`px-2 py-1 rounded-full ${t.status === "done" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-700"
-                                                }`}
+                                            className={`px-2 py-1 rounded-full ${t.status === "done" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-700"}`}
                                         >
                                             {t.status}
                                         </span>
+                                    </td>
+                                    <td className="px-4 py-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => openPreview(t)}
+                                            className="p-1.5 rounded hover:bg-gray-100"
+                                            title="Ver ítems transferidos"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"
+                                                    d="M2.036 12.322a1.012 1.012 0 010-.644C3.423 7.51 7.36 5 12 5c4.64 0 8.577 2.51 9.964 6.678.07.21.07.434 0 .644C20.577 16.49 16.64 19 12 19c-4.64 0-8.577-2.51-9.964-6.678z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"
+                                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            </svg>
+                                        </button>
                                     </td>
                                 </tr>
                             ))}
 
                             {histRows.length === 0 && (
                                 <tr>
-                                    <td className="px-4 py-6 text-gray-500" colSpan={9}>
+                                    <td className="px-4 py-6 text-gray-500" colSpan={10}>
                                         Sin transferencias registradas.
                                     </td>
                                 </tr>
@@ -525,6 +588,78 @@ export default function Create() {
                     </div>
                 )}
             </div>
+
+            {/* ========= MODAL PREVIEW ========= */}
+            {preview.open && (
+                <div className="fixed inset-0 z-40">
+                    {/* backdrop */}
+                    <div className="absolute inset-0 bg-black/40" onClick={closePreview} />
+                    {/* modal */}
+                    <div className="absolute inset-x-4 top-10 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[720px] bg-white rounded-2xl shadow-xl overflow-hidden z-50">
+                        <div className="flex items-center justify-between px-4 py-3 border-b">
+                            <div className="font-semibold">
+                                {preview.header
+                                    ? <>Transferencia #{preview.header.id} · {preview.header.from} → {preview.header.to}</>
+                                    : "Transferencia"}
+                            </div>
+                            <button className="p-1.5 rounded hover:bg-gray-100" onClick={closePreview} aria-label="Cerrar">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M10 8.586l4.95-4.95 1.414 1.414L11.414 10l4.95 4.95-1.414 1.414L10 11.414l-4.95 4.95-1.414-1.414L8.586 10l-4.95-4.95L5.05 3.636 10 8.586z" clipRule="evenodd" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div className="p-4 max-h-[70vh] overflow-auto">
+                            {preview.loading && <div className="text-sm text-gray-600">Cargando ítems…</div>}
+                            {preview.error && <div className="text-sm text-red-600">{preview.error}</div>}
+
+                            {!preview.loading && !preview.error && (
+                                <>
+                                    <div className="text-xs text-gray-500 mb-3">
+                                        {preview.header?.created_at ? new Date(preview.header.created_at).toLocaleString("es-CO") : ""} ·{" "}
+                                        Ítems: <b>{preview.header?.lines_count ?? 0}</b> ·{" "}
+                                        Unidades: <b>{Number(preview.header?.qty_sum ?? 0).toLocaleString("es-CO")}</b>
+                                        {preview.header?.note ? <> · Nota: <span title={preview.header.note}>{preview.header.note}</span></> : null}
+                                    </div>
+
+                                    <div className="overflow-auto rounded border">
+                                        <table className="min-w-full text-sm">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="px-3 py-2 text-left">Producto</th>
+                                                    <th className="px-3 py-2 text-left">Unidad</th>
+                                                    <th className="px-3 py-2 text-left">Cantidad</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y">
+                                                {preview.items.map((it, i) => (
+                                                    <tr key={`${it.inventory_id}-${i}`}>
+                                                        <td className="px-3 py-2">
+                                                            <div className="font-medium">{it.name}</div>
+                                                            <div className="text-xs text-gray-500">#{it.inventory_id}</div>
+                                                        </td>
+                                                        <td className="px-3 py-2 uppercase">{it.unit || "—"}</td>
+                                                        <td className="px-3 py-2">
+                                                            {fmtQty(it.quantity, it.unit)} {it.unit}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                                {preview.items.length === 0 && (
+                                                    <tr><td className="px-3 py-6 text-gray-500" colSpan={3}>Sin ítems.</td></tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        <div className="px-4 py-3 border-t flex justify-end">
+                            <button onClick={closePreview} className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">Cerrar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </AuthenticatedLayout>
     );
 }

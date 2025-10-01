@@ -124,4 +124,61 @@ class TransferController extends Controller
 
         return redirect()->route('stock.index')->with('success', 'Transferencia realizada');
     }
+
+    public function lines(Transfer $transfer)
+    {
+        $transfer->load([
+            'from:id,name',
+            'to:id,name',
+            'creator:id,name',
+            'lines:id,transfer_id,inventory_id,quantity',
+            'lines.inventory:id,name,unit',
+        ]);
+
+        return response()->json([
+            'id' => $transfer->id,
+            'status' => $transfer->status,
+            'created_at' => $transfer->created_at,
+            'from' => $transfer->from?->name,
+            'to' => $transfer->to?->name,
+            'note' => $transfer->note,
+            'lines_count' => $transfer->lines->count(),
+            'qty_sum' => (float) $transfer->lines->sum('quantity'),
+            'items' => $transfer->lines->map(fn($l) => [
+                'inventory_id' => $l->inventory_id,
+                'name' => $l->inventory->name ?? ("#" . $l->inventory_id),
+                'unit' => $l->inventory->unit ?? null,
+                'quantity' => (float) $l->quantity,
+            ])->values(),
+        ]);
+    }
+
+    public function items(Transfer $transfer)
+    {
+        $transfer->load([
+            'from:id,name',
+            'to:id,name',
+            'creator:id,name',
+            // << usa items() del modelo Transfer
+            'items:id,transfer_id,inventory_id,quantity',
+            'items.inventory:id,name,unit',
+        ]);
+
+        return response()->json([
+            'id' => $transfer->id,
+            'status' => $transfer->status,
+            'created_at' => $transfer->created_at,
+            'from' => $transfer->from?->name,
+            'to' => $transfer->to?->name,
+            'note' => $transfer->note,
+            'lines_count' => $transfer->items->count(),
+            'qty_sum' => (float) $transfer->items->sum('quantity'),
+            'items' => $transfer->items->map(fn($it) => [
+                'inventory_id' => $it->inventory_id,
+                'name' => $it->inventory->name ?? ('#' . $it->inventory_id),
+                'unit' => $it->inventory->unit ?? null,
+                'quantity' => (float) $it->quantity,
+            ])->values(),
+        ]);
+    }
 }

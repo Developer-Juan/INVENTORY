@@ -21,6 +21,7 @@
     },
     "dependencies": {
         "@inertiajs/inertia": "^0.11.1",
-        "react-hot-toast": "^2.5.2"
+        "react-hot-toast": "^2.5.2",
+        "recharts": "^3.2.1"
     }
 }

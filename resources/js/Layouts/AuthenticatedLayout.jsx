@@ -54,7 +54,7 @@ export default function Authenticated({ auth, header, children }) {
                                     </NavLink>
                                 </div>
                             )}
-                            {isDealer || isAdmin && (
+                            {(isDealer || isAdmin) && (
                                 <>
                                     <div className="hidden space-x-8 sm:-my-px sm:ml-10 sm:flex">
                                         <NavLink
@@ -93,6 +93,14 @@ export default function Authenticated({ auth, header, children }) {
                             )}
                             {isAdmin && (
                                 <div className="hidden space-x-8 sm:-my-px sm:ml-10 sm:flex">
+                                    <NavLink
+                                        href={route('cash.index')}
+                                        active={route().current('cash.index')}
+                                    >
+                                        Caja / Efectivo
+                                    </NavLink>
+
+
                                     <NavLink href={route('users.index')} active={route().current('users.index')}>
                                         Usuarios
                                     </NavLink>
@@ -174,10 +182,10 @@ export default function Authenticated({ auth, header, children }) {
                                 Productos
                             </ResponsiveNavLink>
                         )}
-                        {isDealer || isAdmin && ( 
+                        {(isDealer || isAdmin) && (
                             <>
                                 <ResponsiveNavLink href={route('sales.index')} active={route().current('sales.index')}>
-                                    Ventas 
+                                    Ventas
                                 </ResponsiveNavLink>
                                 <ResponsiveNavLink href={route('stock.summary')} active={route().current('stock.summary')}>
                                     Stock Totales
@@ -191,9 +199,17 @@ export default function Authenticated({ auth, header, children }) {
                             </>
                         )}
                         {isAdmin && (
-                            <ResponsiveNavLink href={route('users.index')} active={route().current('users.index')}>
-                                Usuarios
-                            </ResponsiveNavLink>
+                            <>
+                                <ResponsiveNavLink
+                                    href={route('cash.index')}
+                                    active={route().current('cash.index')}
+                                >
+                                    Caja / Efectivo
+                                </ResponsiveNavLink>
+                                <ResponsiveNavLink href={route('users.index')} active={route().current('users.index')}>
+                                    Usuarios
+                                </ResponsiveNavLink>
+                            </>
                         )}
 
                     </div>

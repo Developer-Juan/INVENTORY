@@ -5,27 +5,33 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class InventoryMove extends Model
+class CashMove extends Model
 {
     use HasFactory;
 
     protected $fillable = [
-        'inventory_id',
         'location_id',
-        'sale_id',        // << agregar
-        'sale_item_id',   // << agregar
+        'sale_id',
         'direction',
-        'quantity',
+        'amount',
         'reason',
         'created_by',
+        'note'
     ];
 
+    public function location()
+    {
+        return $this->belongsTo(Location::class);
+    }
     public function sale()
     {
         return $this->belongsTo(Sale::class);
     }
-    public function saleItem()
+
+    public function creator()
     {
-        return $this->belongsTo(SaleItem::class);
+        return $this->belongsTo(\App\Models\User::class, 'created_by');
     }
+
+
 }
