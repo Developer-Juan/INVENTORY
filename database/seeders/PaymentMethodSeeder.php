@@ -31,8 +31,8 @@ class PaymentMethodSeeder extends Seeder
         ]);
 
         PaymentMethod::create([
-            'code' => 'nequi',
-            'name' => 'Nequi'
+            'code' => 'revolut',
+            'name' => 'Revolut'
         ]);
     }
 }
