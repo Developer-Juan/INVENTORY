@@ -11,11 +11,7 @@ use Inertia\Inertia;
 
 class DashboardController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
+
     /**
      * Display a listing of the resource.
      *
@@ -86,7 +82,7 @@ class DashboardController extends Controller
             ->orderBy('d')
             ->get();
 
-        // Llenamos todos los días del rango (sin huecos)
+        // Llenamos todos los días del rango (sin huecos) evitando nulls
         $salesMap = $salesByDay->keyBy('d');
         $payMap = $paymentsByDay->keyBy('d');
 
@@ -125,8 +121,8 @@ class DashboardController extends Controller
             });
 
         // ---------------- Top ubicaciones (por monto) ----------------
-        // Ubicación efectiva: COALESCE(si.location_id, s.location_id)
-        // Evita N+1 resolviendo el nombre con left joins
+        // Ubicación efectiva = COALESCE(si.location_id, s.location_id)
+        // Evita N+1 resolviendo el nombre con LEFT JOIN
         $topLocations = DB::table('sale_items as si')
             ->join('sales as s', 's.id', '=', 'si.sale_id')
             ->leftJoin('locations as l_si', 'l_si.id', '=', 'si.location_id')
@@ -137,7 +133,7 @@ class DashboardController extends Controller
             ->limit(10)
             ->get([
                 DB::raw('COALESCE(si.location_id, s.location_id) as loc_id'),
-                DB::raw('COALESCE(l_si.name, l_s.name, "Sin ubicación") as name'),
+                DB::raw("COALESCE(l_si.name, l_s.name, 'Sin ubicación') as name"),
                 DB::raw('COALESCE(SUM(si.total),0) as amount'),
             ])
             ->map(function ($r) {
@@ -176,7 +172,6 @@ class DashboardController extends Controller
             'payByMethod' => $payByMethod,
         ]);
     }
-
 
     /**
      * Show the form for creating a new resource.
