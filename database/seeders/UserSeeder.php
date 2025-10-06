@@ -36,14 +36,14 @@ class UserSeeder extends Seeder
         );
 
         // Asigna roles
-        $dani->syncRoles([$deliveryRole]); // Dani repartidor
-        $jose->syncRoles([$deliveryRole]); // Jose repartidor
+        // $dani->syncRoles([$deliveryRole]); // Dani repartidor
+        // $jose->syncRoles([$deliveryRole]); // Jose repartidor
         $admin->syncRoles([$adminRole]);   // Admin administrador
 
-        // 10 usuarios aleatorios (5 delivery, 5 cashier - opcional)
-        User::factory()->count(5)->create()->each(
-            fn($u) => $u->assignRole($deliveryRole)
-        );
+        // // 10 usuarios aleatorios (5 delivery, 5 cashier - opcional)
+        // User::factory()->count(5)->create()->each(
+        //     fn($u) => $u->assignRole($deliveryRole)
+        // );
         // User::factory()->count(5)->create()->each(
         //     fn($u) => $u->assignRole($dealerRole)
         // );
