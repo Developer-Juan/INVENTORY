@@ -7,6 +7,7 @@ use App\Models\Sale;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
 
 class DashboardController extends Controller
@@ -23,13 +24,8 @@ class DashboardController extends Controller
         $fromStr = $request->query('from');
         $toStr = $request->query('to');
 
-        $from = $fromStr
-            ? Carbon::parse($fromStr)->startOfDay()
-            : now()->subDays(29)->startOfDay();
-
-        $to = $toStr
-            ? Carbon::parse($toStr)->endOfDay()
-            : now()->endOfDay();
+        $from = $fromStr ? Carbon::parse($fromStr)->startOfDay() : now()->subDays(29)->startOfDay();
+        $to = $toStr ? Carbon::parse($toStr)->endOfDay() : now()->endOfDay();
 
         // Strings exactos para evitar issues de TZ en MySQL
         $fromDB = $from->format('Y-m-d H:i:s');
@@ -121,25 +117,47 @@ class DashboardController extends Controller
             });
 
         // ---------------- Top ubicaciones (por monto) ----------------
-        // Ubicación efectiva = COALESCE(si.location_id, s.location_id)
-        // Evita N+1 resolviendo el nombre con LEFT JOIN
-        $topLocations = DB::table('sale_items as si')
-            ->join('sales as s', 's.id', '=', 'si.sale_id')
-            ->leftJoin('locations as l_si', 'l_si.id', '=', 'si.location_id')
-            ->leftJoin('locations as l_s', 'l_s.id', '=', 's.location_id')
-            ->whereIn('s.id', $paidSalesIdsSub)
-            ->groupBy('loc_id', 'name')
-            ->orderByDesc('amount')
-            ->limit(10)
-            ->get([
-                DB::raw('COALESCE(si.location_id, s.location_id) as loc_id'),
-                DB::raw("COALESCE(l_si.name, l_s.name, 'Sin ubicación') as name"),
-                DB::raw('COALESCE(SUM(si.total),0) as amount'),
-            ])
-            ->map(function ($r) {
-                $r->amount = (float) ($r->amount ?? 0);
-                return $r;
-            });
+        // Detecta si sale_items tiene la columna location_id
+        $hasItemLocation = Schema::hasColumn('sale_items', 'location_id');
+
+        if ($hasItemLocation) {
+            // Caso 1: existe si.location_id → usa COALESCE(si.location_id, s.location_id)
+            $topLocations = DB::table('sale_items as si')
+                ->join('sales as s', 's.id', '=', 'si.sale_id')
+                ->leftJoin('locations as l_si', 'l_si.id', '=', 'si.location_id')
+                ->leftJoin('locations as l_s', 'l_s.id', '=', 's.location_id')
+                ->whereIn('s.id', $paidSalesIdsSub)
+                ->groupBy('loc_id', 'name')
+                ->orderByDesc('amount')
+                ->limit(10)
+                ->get([
+                    DB::raw('COALESCE(si.location_id, s.location_id) as loc_id'),
+                    DB::raw("COALESCE(l_si.name, l_s.name, 'Sin ubicación') as name"),
+                    DB::raw('COALESCE(SUM(si.total),0) as amount'),
+                ])
+                ->map(function ($r) {
+                    $r->amount = (float) ($r->amount ?? 0);
+                    return $r;
+                });
+        } else {
+            // Caso 2: NO existe si.location_id → usa SOLO s.location_id
+            $topLocations = DB::table('sale_items as si')
+                ->join('sales as s', 's.id', '=', 'si.sale_id')
+                ->leftJoin('locations as l_s', 'l_s.id', '=', 's.location_id')
+                ->whereIn('s.id', $paidSalesIdsSub)
+                ->groupBy('loc_id', 'name')
+                ->orderByDesc('amount')
+                ->limit(10)
+                ->get([
+                    DB::raw('s.location_id as loc_id'),
+                    DB::raw("COALESCE(l_s.name, 'Sin ubicación') as name"),
+                    DB::raw('COALESCE(SUM(si.total),0) as amount'),
+                ])
+                ->map(function ($r) {
+                    $r->amount = (float) ($r->amount ?? 0);
+                    return $r;
+                });
+        }
 
         // ---------------- Métodos de pago (pie) ----------------
         $payByMethod = DB::table('payments as p')
