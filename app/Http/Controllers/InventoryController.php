@@ -103,14 +103,66 @@ class InventoryController extends Controller
 
     public function update(InventoryRequest $req, Inventory $inventory)
     {
+        // 1) Actualiza datos del producto (sin tocar stock)
         $data = $req->validated();
-        $data['purchase_price'] = $data['purchase_price'] ?? 0;
-        $data['sale_price'] = $data['sale_price'] ?? 0;
-        $data['quantity'] = $data['quantity'] ?? 0;
+        $inventory->update([
+            'name' => $data['name'],
+            'description' => $data['description'] ?? null,
+            'unit' => $data['unit'],
+            'purchase_price' => (float) ($data['purchase_price'] ?? 0),
+            'sale_price' => (float) ($data['sale_price'] ?? 0),
+        ]);
 
-        $inventory->update($data);
+        // 2) Si vienen campos de stock, los procesamos
+        //    Espera: stock_op ∈ {'none','set','inc'}, stock_value (num), location_id (opcional)
+        $stockOp = $req->input('stock_op');        // none|set|inc
+        $stockValue = $req->input('stock_value');     // número (puede ser negativo si inc)
+        $locIdIn = $req->input('location_id');     // opcional
+
+        if ($stockOp && $stockOp !== 'none' && $stockValue !== null && $stockValue !== '') {
+            // Ubicación por defecto: Principal
+            $principalId = Location::whereIn('type', ['principal', 'main'])->value('id');
+            $locationId = (int) ($locIdIn ?: $principalId);
+
+            DB::transaction(function () use ($inventory, $locationId, $stockOp, $stockValue) {
+                // Fila de stock por producto+ubicación
+                /** @var \App\Models\InventoryStock $row */
+                $row = InventoryStock::firstOrCreate(
+                    ['inventory_id' => $inventory->id, 'location_id' => $locationId],
+                    ['on_hand' => 0, 'reserved' => 0, 'min_stock' => 0]
+                );
+
+                $val = (int) $stockValue;
+
+                if ($stockOp === 'set') {
+                    $row->on_hand = max(0, $val);
+                } elseif ($stockOp === 'inc') {
+                    // Ajuste relativo (acepta negativos). No baja de 0.
+                    $row->on_hand = max(0, (int) $row->on_hand + $val);
+                }
+
+                $row->save();
+            });
+        }
 
         return redirect()->route('inventories.index')->with('success', 'Producto actualizado');
+    }
+
+    public function updateMinStock(Request $r, Inventory $inventory)
+    {
+        $data = $r->validate([
+            'location_id' => ['required', 'exists:locations,id'],
+            'min_stock' => ['required', 'integer', 'min:0'],
+        ]);
+
+        $row = InventoryStock::firstOrCreate(
+            ['inventory_id' => $inventory->id, 'location_id' => (int) $data['location_id']],
+            ['on_hand' => 0, 'reserved' => 0, 'min_stock' => 0]
+        );
+
+        $row->update(['min_stock' => (int) $data['min_stock']]);
+
+        return back()->with('success', 'Mínimo actualizado.');
     }
 
     public function destroy(Inventory $inventory)
@@ -160,20 +212,4 @@ class InventoryController extends Controller
         return response()->json($rows);
     }
 
-    public function updateMinStock(Request $r, Inventory $inventory)
-    {
-        $data = $r->validate([
-            'location_id' => ['required', 'exists:locations,id'],
-            'min_stock' => ['required', 'integer', 'min:0'],
-        ]);
-
-        $row = InventoryStock::firstOrCreate(
-            ['inventory_id' => $inventory->id, 'location_id' => (int) $data['location_id']],
-            ['on_hand' => 0, 'reserved' => 0, 'min_stock' => 0]
-        );
-
-        $row->update(['min_stock' => (int) $data['min_stock']]);
-
-        return back()->with('success', 'Mínimo actualizado.');
-    }
 }

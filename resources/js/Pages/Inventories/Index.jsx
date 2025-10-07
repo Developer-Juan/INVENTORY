@@ -26,11 +26,12 @@ export default function Index() {
             ? '—'
             : `$${Number(v).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-    const num = (v) =>
-        Number(v ?? 0).toLocaleString('es-CO', { maximumFractionDigits: 3 });
+    const num = (v) => Number(v ?? 0).toLocaleString('es-CO', { maximumFractionDigits: 3 });
 
     const toNullableNumber = (v) =>
-        v === '' || v === null || v === undefined ? null : parseFloat(String(v).replace(',', '.'));
+        v === '' || v === null || v === undefined
+            ? null
+            : parseFloat(String(v).replace(',', '.'));
 
     // ===== Forms =====
     const createForm = useForm({
@@ -49,6 +50,9 @@ export default function Index() {
         unit: 'pcs',
         purchase_price: '',
         sale_price: '',
+        // NUEVO: control de stock al editar
+        stock_op: 'none',   // 'none' | 'set' | 'inc'
+        stock_value: '',    // string -> number
     });
 
     const deleteForm = useForm();
@@ -61,6 +65,8 @@ export default function Index() {
             unit: item.unit || 'pcs',
             purchase_price: item.purchase_price ?? '',
             sale_price: item.sale_price ?? '',
+            stock_op: 'none',
+            stock_value: '',
         });
         setIsEditOpen(true);
     }
@@ -87,6 +93,13 @@ export default function Index() {
             ...d,
             purchase_price: toNullableNumber(d.purchase_price),
             sale_price: toNullableNumber(d.sale_price),
+            // Enviar location_id para operar en Principal
+            location_id: principalId || undefined,
+            // stock_value numérico solo si aplica
+            stock_value:
+                d.stock_op === 'none' || d.stock_value === ''
+                    ? null
+                    : Number(String(d.stock_value).replace(',', '.')),
         }));
         editForm.put(`/inventories/${editItemId}`, {
             preserveScroll: true,
@@ -140,7 +153,6 @@ export default function Index() {
                                 className="flex-1 rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter') {
-                                        // Implementa tu búsqueda server-side si la tienes
                                         toast('Busca por nombre (implementa la query en el servidor)');
                                     }
                                 }}
@@ -189,9 +201,7 @@ export default function Index() {
                                         defaultValue={item.principal_min_stock ?? 0}
                                         className="mt-1 w-full rounded-lg border px-3 py-2"
                                         onBlur={(e) => saveMinStock(item.id, e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') e.currentTarget.blur();
-                                        }}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                                     />
                                 </div>
 
@@ -249,9 +259,7 @@ export default function Index() {
                                                 defaultValue={item.principal_min_stock ?? 0}
                                                 className="w-24 rounded border px-2 py-1"
                                                 onBlur={(e) => saveMinStock(item.id, e.target.value)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') e.currentTarget.blur();
-                                                }}
+                                                onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                                             />
                                         </td>
                                         <td className="px-4 lg:px-6 py-4 whitespace-nowrap">{money(item.purchase_price)}</td>
@@ -481,6 +489,47 @@ export default function Index() {
                                             onChange={(e) => editForm.setData('sale_price', e.target.value)}
                                         />
                                         {editForm.errors.sale_price && <p className="text-red-600 text-xs mt-1">{editForm.errors.sale_price}</p>}
+                                    </div>
+                                </div>
+
+                                {/* NUEVO: bloque de stock */}
+                                <div className="sm:col-span-2 rounded-lg border p-3">
+                                    <p className="text-sm font-medium text-gray-700 mb-2">Stock (Principal)</p>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                        <div>
+                                            <label className="block text-xs text-gray-500 mb-1">Operación</label>
+                                            <select
+                                                className="w-full rounded-lg border px-3 py-2"
+                                                value={editForm.data.stock_op}
+                                                onChange={(e) => editForm.setData('stock_op', e.target.value)}
+                                            >
+                                                <option value="none">No cambiar</option>
+                                                <option value="set">Establecer</option>
+                                                <option value="inc">Ajuste (+/–)</option>
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs text-gray-500 mb-1">
+                                                {editForm.data.stock_op === 'set' ? 'Nuevo stock' : 'Ajuste (+/–)'}
+                                            </label>
+                                            <input
+                                                type="number"
+                                                className="w-full rounded-lg border px-3 py-2"
+                                                placeholder={editForm.data.stock_op === 'set' ? 'e.g. 100' : 'e.g. 5 o -3'}
+                                                value={editForm.data.stock_value}
+                                                onChange={(e) => editForm.setData('stock_value', e.target.value)}
+                                                disabled={editForm.data.stock_op === 'none'}
+                                            />
+                                        </div>
+
+                                        <div className="flex items-end">
+                                            <p className="text-xs text-gray-500">
+                                                Se aplica en <strong>Principal</strong>{' '}
+                                                {principalId ? `(ID ${principalId})` : ''}.
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
 
