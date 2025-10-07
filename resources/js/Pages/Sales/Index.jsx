@@ -16,7 +16,7 @@ export default function Index() {
         flash = {},
     } = usePage().props;
 
-    // Solo admin / super-admin
+    // ===== Roles (solo admin / super-admin) =====
     const isAdmin = useMemo(() => {
         const rolesRaw = auth?.user?.roles ?? auth?.roles ?? [];
         const roles = Array.isArray(rolesRaw)
@@ -34,10 +34,9 @@ export default function Index() {
     const [linePrice, setLinePrice] = useState({}); // precio TOTAL de la línea
     const [cartItems, setCartItems] = useState([]);
     const [bulkFlow, setBulkFlow] = useState(false);
-
     const [submitting, setSubmitting] = useState(false);
 
-    // ===== Helpers cantidad (decimales paso 0.5) =====
+    // ===== Helpers cantidad (paso 0.5) =====
     const STEP = 0.5;
     const clampFloat = (n, min, max) => Math.max(min, Math.min(max, n));
     const snapToStep = (n, step = STEP) => Math.round(n / step) * step;
@@ -107,7 +106,7 @@ export default function Index() {
         );
     }
 
-    // Total carrito
+    // Total carrito (sin delivery; si hay override usa el total de la línea)
     const totalSum = useMemo(() => {
         return Object.entries(cart).reduce((acc, [id, qtyRaw]) => {
             const prod = items.find(x => x.id === Number(id));
@@ -188,7 +187,7 @@ export default function Index() {
                 return {
                     inventory_id: Number(i),
                     quantity: parseFloat(qty.toFixed(3)),
-                    unit_price: unitPrice,
+                    unit_price: unitPrice,              // si hay override se envía unit_price calculado
                     total_price: parseFloat(lineTotal.toFixed(2)),
                     discount: 0,
                 };
@@ -256,6 +255,7 @@ export default function Index() {
                 items: cartItems,
                 payments: [{ payment_method_id: methodId, amount, reference: reference || null }],
             };
+            // Importante: NO sumamos tarifa de delivery aquí; backend calcula aparte si aplica.
             if (hasDelivery) {
                 payload.delivery_id = Number(deliveryId);
                 payload.km = kmVal;
@@ -303,7 +303,11 @@ export default function Index() {
     }
 
     return (
-        <AuthenticatedLayout auth={auth} errors={errors} header={<h2 className="font-semibold text-xl text-gray-800 dark:text-gray-200">Ventas</h2>}>
+        <AuthenticatedLayout
+            auth={auth}
+            errors={errors}
+            header={<h2 className="font-semibold text-xl text-gray-800 dark:text-gray-200">Ventas</h2>}
+        >
             <Head title="Ventas" />
 
             <div className="p-4 sm:p-6 max-w-7xl mx-auto">
@@ -457,43 +461,47 @@ export default function Index() {
                 )}
             </div>
 
-            {/* Modal Carrito */}
-            <Dialog open={openCart} onClose={() => setOpenCart(false)} className="fixed inset-0 z-50">
-                <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
-                <div className="fixed inset-0 grid place-items-center p-0 sm:p-4">
-                    <div className="relative z-50 bg-white h-[100dvh] sm:h-auto sm:max-h-[90vh] w-full sm:w-full sm:max-w-4xl sm:rounded-xl shadow-lg overflow-hidden">
-                        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b">
+            {/* ===== Modal Carrito (header/footer fijos; scroll solo desktop en body) ===== */}
+            <Dialog open={openCart} onClose={() => setOpenCart(false)} className="relative z-50">
+                <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
+                <div className="fixed inset-0 flex items-center justify-center p-4">
+                    <Dialog.Panel className="w-full max-w-5xl bg-white rounded-2xl shadow-xl flex flex-col max-h-[90vh]">
+                        {/* Header fijo */}
+                        <div className="p-4 sm:p-5 border-b sticky top-0 bg-white z-10 flex items-center justify-between">
                             <Dialog.Title className="text-base sm:text-lg font-bold">Carrito</Dialog.Title>
                             <button onClick={() => setOpenCart(false)} className="text-gray-500 hover:text-gray-700">✕</button>
                         </div>
 
-                        <div className="px-4 sm:px-6 py-4 overflow-y-auto h-[calc(100dvh-160px)] sm:h-auto">
+                        {/* Body: scroll solo en desktop */}
+                        <div className="p-4 sm:p-5 min-h-0 overflow-visible md:overflow-y-auto md:max-h-[65vh]">
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                                 {items.map(prod => (
                                     <div key={prod.id} className="border p-3 sm:p-4 rounded-lg">
-                                        <h3 className="font-semibold text-sm sm:text-base">{prod.name}</h3>
+                                        <h3 className="font-semibold text-sm sm:text-base">
+                                            {prod.name ?? prod.code ?? `#${prod.id}`}
+                                        </h3>
                                         <p className="text-xs sm:text-sm text-gray-600">Stock: {fmtQty(prod.quantity)}</p>
                                         <p className="text-xs sm:text-sm text-gray-600">
                                             Precio catálogo (unidad): ${Number(prod.sale_price ?? 0).toLocaleString('es-CO')}
                                         </p>
 
-                                        {/* Precio TOTAL del ítem */}
+                                        {/* Precio TOTAL del ítem (opcional) */}
                                         <input
                                             type="number"
                                             step="0.01"
                                             min="0"
-                                            className="mt-2 w-full border px-2 py-2 rounded-md text-sm"
+                                            className="mt-3 w-full border px-2 py-2 rounded-md text-sm"
                                             placeholder="Precio total del ítem (opcional)"
                                             value={linePrice[prod.id] ?? ''}
                                             onChange={e => setLinePrice(prev => ({ ...prev, [prod.id]: e.target.value }))}
                                         />
 
                                         {/* Cantidad + botones */}
-                                        <div className="mt-2 flex items-stretch gap-2">
+                                        <div className="mt-3 flex items-stretch gap-2">
                                             <button
                                                 type="button"
                                                 onClick={() => addQty(prod.id, -1, prod.quantity)}
-                                                className="w-10 h-10 sm:w-9 sm:h-9 grid place-items-center bg-gray-100 rounded-md text-xl"
+                                                className="w-10 h-10 grid place-items-center bg-gray-100 rounded-md text-xl"
                                                 aria-label="Restar"
                                             >
                                                 −
@@ -516,7 +524,7 @@ export default function Index() {
                                             <button
                                                 type="button"
                                                 onClick={() => addQty(prod.id, 1, prod.quantity)}
-                                                className="w-10 h-10 sm:w-9 sm:h-9 grid place-items-center bg-gray-100 rounded-md text-xl"
+                                                className="w-10 h-10 grid place-items-center bg-gray-100 rounded-md text-xl"
                                                 aria-label="Sumar"
                                             >
                                                 ＋
@@ -527,8 +535,8 @@ export default function Index() {
                             </div>
                         </div>
 
-                        {/* Footer fijo en móvil */}
-                        <div className="px-4 sm:px-6 py-3 border-t bg-white sticky bottom-0">
+                        {/* Footer fijo */}
+                        <div className="p-4 sm:p-5 border-t sticky bottom-0 bg-white z-10">
                             <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 justify-between">
                                 <div className="text-base sm:text-lg font-semibold">
                                     Total: ${Number(totalSum).toLocaleString('es-CO')}
@@ -541,26 +549,26 @@ export default function Index() {
                                 </button>
                             </div>
                         </div>
-                    </div>
+                    </Dialog.Panel>
                 </div>
             </Dialog>
 
-            {/* Modal Pago / Deuda / Crear venta */}
-            <Dialog open={openPay} onClose={() => setOpenPay(false)} className="fixed inset-0 z-50">
-                <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
-                <div className="fixed inset-0 grid place-items-center p-0 sm:p-4">
+            {/* ===== Modal Pago / Deuda / Crear venta ===== */}
+            <Dialog open={openPay} onClose={() => setOpenPay(false)} className="relative z-50">
+                <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
+                <div className="fixed inset-0 flex items-center justify-center p-4">
                     <form
                         onSubmit={submitPay}
-                        className="relative z-50 bg-white h-[100dvh] sm:h-auto sm:max-h-[90vh] w-full sm:w-full sm:max-w-xl sm:rounded-xl shadow-xl overflow-hidden flex flex-col"
+                        className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]"
                     >
-                        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b">
+                        <div className="p-4 sm:p-5 border-b sticky top-0 bg-white z-10 flex items-center justify-between">
                             <Dialog.Title className="text-base sm:text-lg font-bold">
                                 {bulkFlow ? 'Pago Carrito' : 'Saldar Deuda'}
                             </Dialog.Title>
                             <button onClick={() => setOpenPay(false)} type="button" className="text-gray-500 hover:text-gray-700">✕</button>
                         </div>
 
-                        <div className="px-4 sm:px-6 py-4 overflow-y-auto flex-1 space-y-4">
+                        <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">
                             {bulkFlow && (
                                 <>
                                     <div>
@@ -688,7 +696,7 @@ export default function Index() {
                             )}
                         </div>
 
-                        <div className="px-4 sm:px-6 py-3 border-t bg-white">
+                        <div className="p-4 sm:p-5 border-t bg-white sticky bottom-0">
                             <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 justify-end">
                                 <button
                                     type="button"
