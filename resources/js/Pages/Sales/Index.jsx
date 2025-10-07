@@ -16,7 +16,6 @@ export default function Index() {
         flash = {},
     } = usePage().props;
 
-    // ===== Roles (solo admin / super-admin) =====
     const isAdmin = useMemo(() => {
         const rolesRaw = auth?.user?.roles ?? auth?.roles ?? [];
         const roles = Array.isArray(rolesRaw)
@@ -30,18 +29,18 @@ export default function Index() {
 
     // ===== Carrito =====
     const [openCart, setOpenCart] = useState(false);
-    const [cart, setCart] = useState({});           // { [inventoryId]: qty | '' }
-    const [linePrice, setLinePrice] = useState({}); // precio TOTAL de la línea
+    const [cart, setCart] = useState({});   // { [inventoryId]: qty | '' }
+    const [linePrice, setLinePrice] = useState({});   // total por ítem (override)
     const [cartItems, setCartItems] = useState([]);
     const [bulkFlow, setBulkFlow] = useState(false);
     const [submitting, setSubmitting] = useState(false);
 
-    // ===== Helpers cantidad (paso 0.5) =====
+    // ===== Cantidades (paso 0.5) =====
     const STEP = 0.5;
     const clampFloat = (n, min, max) => Math.max(min, Math.min(max, n));
     const snapToStep = (n, step = STEP) => Math.round(n / step) * step;
     const normalizeDecimal = (raw) => {
-        if (raw === '' || raw === null || raw === undefined) return '';
+        if (raw === '' || raw == null) return '';
         const s = String(raw).replace(',', '.');
         const n = parseFloat(s);
         return Number.isFinite(n) ? n : '';
@@ -54,21 +53,18 @@ export default function Index() {
     };
 
     const setQty = (id, raw, max) => {
-        if (raw === '') return setCart(prev => ({ ...prev, [id]: '' }));
+        if (raw === '') return setCart(p => ({ ...p, [id]: '' }));
         const n = normalizeDecimal(raw);
         if (n === '') return;
-        const limited = clampFloat(n, 0, Number(max ?? 0));
-        setCart(prev => ({ ...prev, [id]: limited }));
+        setCart(p => ({ ...p, [id]: clampFloat(n, 0, Number(max ?? 0)) }));
     };
 
     const commitQty = (id, max) => {
         setCart(prev => {
             const raw = prev[id];
             if (raw === '' || raw === undefined) return { ...prev, [id]: '' };
-            let n = normalizeDecimal(raw);
-            if (n === '') n = 0;
-            n = snapToStep(n);
-            n = clampFloat(n, 0, Number(max ?? 0));
+            let n = normalizeDecimal(raw); if (n === '') n = 0;
+            n = clampFloat(snapToStep(n), 0, Number(max ?? 0));
             if (n > 0 && n < STEP) n = STEP;
             return { ...prev, [id]: n };
         });
@@ -78,13 +74,11 @@ export default function Index() {
         setCart(prev => {
             const cur = normalizeDecimal(prev[id] ?? 0) || 0;
             const next = cur === 0 && delta > 0 ? STEP : cur + (delta * STEP);
-            const snapped = snapToStep(next);
-            const limited = clampFloat(snapped, 0, Number(max ?? 0));
-            return { ...prev, [id]: limited };
+            return { ...prev, [id]: clampFloat(snapToStep(next), 0, Number(max ?? 0)) };
         });
     }
 
-    // ---- Anular venta (solo admin)
+    // ===== Anular venta =====
     function cancelSale(s) {
         if (!s) return;
         const reason = window.prompt('Motivo de anulación (opcional):', '');
@@ -98,30 +92,22 @@ export default function Index() {
                 onStart: () => setSubmitting(true),
                 onFinish: () => setSubmitting(false),
                 onSuccess: () => toast.success(`Venta #${s.id} anulada`),
-                onError: (errs) => {
-                    console.error('Sales.cancel validation errors:', errs);
-                    showErrors(errs);
-                },
+                onError: (errs) => { console.error(errs); showErrors(errs); },
             }
         );
     }
 
-    // Total carrito (sin delivery; si hay override usa el total de la línea)
+    // ===== Total carrito (sin delivery) =====
     const totalSum = useMemo(() => {
         return Object.entries(cart).reduce((acc, [id, qtyRaw]) => {
             const prod = items.find(x => x.id === Number(id));
             if (!prod) return acc;
-
             let qty = normalizeDecimal(qtyRaw ?? 0) || 0;
-            qty = snapToStep(qty);
-            qty = clampFloat(qty, 0, Number(prod.quantity ?? 0));
+            qty = clampFloat(snapToStep(qty), 0, Number(prod.quantity ?? 0));
             if (qty <= 0) return acc;
-
             const override = linePrice[id];
-            const lineTotal = override !== undefined && override !== ''
-                ? Number(override)
+            const lineTotal = override !== undefined && override !== '' ? Number(override)
                 : Number(prod.sale_price ?? 0) * qty;
-
             return acc + (Number.isFinite(lineTotal) ? lineTotal : 0);
         }, 0);
     }, [cart, linePrice, items]);
@@ -151,18 +137,14 @@ export default function Index() {
         if (bulkFlow) {
             setNewDue(Math.max(0, Number(totalSum) - Number(pd.pay || 0)));
         } else if (selected) {
-            const currentBalance = Number(
+            const bal = Number(
                 selected.balance ?? Math.max(0, (selected.total ?? 0) - (selected.paid ?? 0))
             );
-            setNewDue(Math.max(0, currentBalance - Number(pd.pay || 0)));
-        } else {
-            setNewDue(0);
-        }
+            setNewDue(Math.max(0, bal - Number(pd.pay || 0)));
+        } else setNewDue(0);
     }, [pd.pay, totalSum, bulkFlow, selected]);
 
-    useEffect(() => {
-        if (!deliveryId) setKm('');
-    }, [deliveryId]);
+    useEffect(() => { if (!deliveryId) setKm(''); }, [deliveryId]);
 
     function doCheckout() {
         const lines = Object.entries(cart)
@@ -171,8 +153,7 @@ export default function Index() {
                 if (!prod) return null;
 
                 let qty = normalizeDecimal(qtyRaw ?? 0) || 0;
-                qty = snapToStep(qty);
-                qty = clampFloat(qty, 0, Number(prod.quantity ?? 0));
+                qty = clampFloat(snapToStep(qty), 0, Number(prod.quantity ?? 0));
                 if (qty > 0 && qty < STEP) qty = STEP;
                 if (qty < STEP) return null;
 
@@ -182,22 +163,17 @@ export default function Index() {
                 if (!(lineTotal > 0)) return null;
 
                 const unit = lineTotal / qty;
-                const unitPrice = hasOverride ? parseFloat(unit.toFixed(2)) : null;
-
                 return {
                     inventory_id: Number(i),
                     quantity: parseFloat(qty.toFixed(3)),
-                    unit_price: unitPrice,              // si hay override se envía unit_price calculado
+                    unit_price: hasOverride ? parseFloat(unit.toFixed(2)) : null,
                     total_price: parseFloat(lineTotal.toFixed(2)),
                     discount: 0,
                 };
             })
             .filter(Boolean);
 
-        if (!lines.length) {
-            toast.error('Agrega productos con total > 0');
-            return;
-        }
+        if (!lines.length) return toast.error('Agrega productos con total > 0');
 
         setCartItems(lines);
         setPd({ paid: 0, pay: Number(totalSum), name: '', phone: '' });
@@ -214,7 +190,9 @@ export default function Index() {
             pay: Number(sale.balance ?? Math.max(0, (sale.total ?? 0) - (sale.paid ?? 0))),
             name: '', phone: '',
         });
-        setReference(''); setBulkFlow(false); setOpenPay(true);
+        setReference('');
+        setBulkFlow(false);
+        setOpenPay(true);
     }
 
     function showErrors(errs) {
@@ -234,16 +212,13 @@ export default function Index() {
 
         if (bulkFlow) {
             let customerIdStr = null;
-            if (customerId !== '' && customerId !== null && customerId !== undefined) {
+            if (customerId !== '' && customerId != null) {
                 const n = Number(customerId);
-                if (!Number.isFinite(n) || n < 0 || n > 9999)
-                    return toast.error('ID de cliente inválido (0–9999)');
+                if (!Number.isFinite(n) || n < 0 || n > 9999) return toast.error('ID de cliente inválido (0–9999)');
                 customerIdStr = String(Math.floor(n)).padStart(4, '0');
             }
-
             const hasDelivery = String(deliveryId || '') !== '';
             const kmVal = parseFloat(km || '0');
-
             if (hasDelivery && !(kmVal > 0)) return toast.error('Ingresa los KM (> 0)');
             if (amount < totalSum && (!pd.name || !pd.phone))
                 return toast.error('Si es pago parcial, ingresa nombre y teléfono');
@@ -255,37 +230,23 @@ export default function Index() {
                 items: cartItems,
                 payments: [{ payment_method_id: methodId, amount, reference: reference || null }],
             };
-            // Importante: NO sumamos tarifa de delivery aquí; backend calcula aparte si aplica.
-            if (hasDelivery) {
-                payload.delivery_id = Number(deliveryId);
-                payload.km = kmVal;
-            }
+            // Delivery no se suma aquí; backend decide si aplica
+            if (hasDelivery) { payload.delivery_id = Number(deliveryId); payload.km = kmVal; }
 
-            router.post(
-                route('sales.store'),
-                payload,
-                {
-                    preserveScroll: true,
-                    onStart: () => setSubmitting(true),
-                    onFinish: () => setSubmitting(false),
-                    onSuccess: () => {
-                        setOpenPay(false);
-                        setCart({});
-                        setLinePrice({});
-                        setDeliveryId(''); setKm('');
-                        toast.success('Venta creada correctamente');
-                    },
-                    onError: (errs) => {
-                        console.error('Sales.store validation errors:', errs);
-                        showErrors(errs);
-                    },
-                }
-            );
+            router.post(route('sales.store'), payload, {
+                preserveScroll: true,
+                onStart: () => setSubmitting(true),
+                onFinish: () => setSubmitting(false),
+                onSuccess: () => {
+                    setOpenPay(false); setCart({}); setLinePrice({}); setDeliveryId(''); setKm('');
+                    toast.success('Venta creada correctamente');
+                },
+                onError: (errs) => { console.error(errs); showErrors(errs); },
+            });
             return;
         }
 
         if (!selected) return;
-
         router.post(
             route('sales.payments.store', selected.id),
             { payment_method_id: methodId, amount, reference: reference || null },
@@ -294,10 +255,7 @@ export default function Index() {
                 onStart: () => setSubmitting(true),
                 onFinish: () => setSubmitting(false),
                 onSuccess: () => { setOpenPay(false); toast.success('Pago registrado correctamente'); },
-                onError: (errs) => {
-                    console.error('Sales.payments.store validation errors:', errs);
-                    showErrors(errs);
-                },
+                onError: (errs) => { console.error(errs); showErrors(errs); },
             }
         );
     }
@@ -315,8 +273,7 @@ export default function Index() {
                     <div className="mb-4 p-3 rounded bg-red-50 text-red-700 text-sm">
                         <ul className="list-disc pl-5">
                             {Object.entries(errors).map(([k, v]) => (
-                                Array.isArray(v)
-                                    ? v.map((m, i) => <li key={`${k}-${i}`}><b>{k}</b>: {m}</li>)
+                                Array.isArray(v) ? v.map((m, i) => <li key={`${k}-${i}`}><b>{k}</b>: {m}</li>)
                                     : <li key={k}><b>{k}</b>: {String(v)}</li>
                             ))}
                         </ul>
@@ -332,19 +289,16 @@ export default function Index() {
                     </button>
                 </div>
 
-                {/* Cards (mobile-first) */}
+                {/* Cards mobile */}
                 <div className="md:hidden space-y-3">
                     {rows.map(s => (
                         <div key={s.id} className="bg-white rounded-lg shadow p-4">
                             <div className="flex items-center justify-between">
                                 <div className="font-semibold">#{s.id}</div>
-                                <span className={
-                                    `text-xs px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800' :
-                                        s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800' :
-                                            s.status === 'anulada' ? 'bg-gray-200 text-gray-700' :
-                                                'bg-red-100 text-red-800'
-                                    }`
-                                }>{s.status}</span>
+                                <span className={`text-xs px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
+                                        : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
+                                            : s.status === 'anulada' ? 'bg-gray-200 text-gray-700'
+                                                : 'bg-red-100 text-red-800'}`}>{s.status}</span>
                             </div>
                             <div className="mt-2 text-sm text-gray-600">
                                 {s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : ''}
@@ -357,38 +311,25 @@ export default function Index() {
                             </div>
                             <div className="mt-3 flex gap-3">
                                 {s.status !== 'pagado' && s.status !== 'anulada' && (
-                                    <button
-                                        onClick={() => beginPay(s)}
-                                        className="flex-1 text-yellow-700 border border-yellow-300 rounded-md py-2"
-                                    >
+                                    <button onClick={() => beginPay(s)} className="flex-1 text-yellow-700 border border-yellow-300 rounded-md py-2">
                                         Saldar Deuda
                                     </button>
                                 )}
-                                <Link
-                                    href={route('sales.show', s.id)}
-                                    className="flex-1 text-center text-indigo-700 border border-indigo-300 rounded-md py-2"
-                                >
+                                <Link href={route('sales.show', s.id)} className="flex-1 text-center text-indigo-700 border border-indigo-300 rounded-md py-2">
                                     Ver
                                 </Link>
-
                                 {isAdmin && s.status !== 'anulada' && (
-                                    <button
-                                        onClick={() => cancelSale(s)}
-                                        className="flex-1 text-white bg-red-600 hover:bg-red-700 rounded-md py-2 disabled:opacity-50"
-                                        disabled={submitting}
-                                    >
+                                    <button onClick={() => cancelSale(s)} className="flex-1 text-white bg-red-600 hover:bg-red-700 rounded-md py-2 disabled:opacity-50" disabled={submitting}>
                                         Anular
                                     </button>
                                 )}
                             </div>
                         </div>
                     ))}
-                    {rows.length === 0 && (
-                        <div className="text-sm text-gray-500 text-center">Sin registros.</div>
-                    )}
+                    {rows.length === 0 && <div className="text-sm text-gray-500 text-center">Sin registros.</div>}
                 </div>
 
-                {/* Tabla (desktop) */}
+                {/* Tabla desktop */}
                 <div className="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50 sticky top-0 z-10">
@@ -402,45 +343,31 @@ export default function Index() {
                             {rows.map(s => (
                                 <tr key={s.id}>
                                     <td className="px-6 py-4 whitespace-nowrap">#{s.id}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        {s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : ''}
-                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">{s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : ''}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">{s.items_count ?? s.items?.length ?? '-'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">${Number(s.total).toLocaleString('es-CO')}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">${Number(s.paid).toLocaleString('es-CO')}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">${Number(s.balance).toLocaleString('es-CO')}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className={
-                                            `px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800' :
-                                                s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800' :
-                                                    s.status === 'anulada' ? 'bg-gray-200 text-gray-700' :
-                                                        'bg-red-100 text-red-800'
-                                            }`
-                                        }>{s.status}</span>
+                                        <span className={`px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
+                                                : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
+                                                    : s.status === 'anulada' ? 'bg-gray-200 text-gray-700'
+                                                        : 'bg-red-100 text-red-800'}`}>{s.status}</span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap space-x-3">
                                         {s.status !== 'pagado' && s.status !== 'anulada' && (
-                                            <button onClick={() => beginPay(s)} className="text-yellow-600 hover:text-yellow-900">
-                                                Saldar Deuda
-                                            </button>
+                                            <button onClick={() => beginPay(s)} className="text-yellow-600 hover:text-yellow-900">Saldar Deuda</button>
                                         )}
                                         <Link href={route('sales.show', s.id)} className="text-indigo-600 hover:text-indigo-900">Ver</Link>
-
                                         {isAdmin && s.status !== 'anulada' && (
-                                            <button
-                                                onClick={() => cancelSale(s)}
-                                                className="text-red-600 hover:text-red-900 disabled:opacity-50"
-                                                disabled={submitting}
-                                            >
+                                            <button onClick={() => cancelSale(s)} className="text-red-600 hover:text-red-900 disabled:opacity-50" disabled={submitting}>
                                                 Anular
                                             </button>
                                         )}
                                     </td>
                                 </tr>
                             ))}
-                            {rows.length === 0 && (
-                                <tr><td className="px-6 py-4 text-sm text-gray-500" colSpan={8}>Sin registros.</td></tr>
-                            )}
+                            {rows.length === 0 && <tr><td className="px-6 py-4 text-sm text-gray-500" colSpan={8}>Sin registros.</td></tr>}
                         </tbody>
                     </table>
                 </div>
@@ -461,31 +388,34 @@ export default function Index() {
                 )}
             </div>
 
-            {/* ===== Modal Carrito (header/footer fijos; scroll solo desktop en body) ===== */}
+            {/* ===== Modal Carrito ===== */}
             <Dialog open={openCart} onClose={() => setOpenCart(false)} className="relative z-50">
                 <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
-                <div className="fixed inset-0 flex items-center justify-center p-4">
-                    <Dialog.Panel className="w-full max-w-5xl bg-white rounded-2xl shadow-xl flex flex-col max-h-[90vh]">
+                <div className="fixed inset-0 flex items-center justify-center p-0 md:p-4">
+                    <Dialog.Panel
+                        className="
+              w-full max-w-5xl bg-white shadow-xl flex flex-col
+              h-[100dvh] md:h-auto md:max-h-[90vh]
+              rounded-none md:rounded-2xl
+            "
+                    >
                         {/* Header fijo */}
-                        <div className="p-4 sm:p-5 border-b sticky top-0 bg-white z-10 flex items-center justify-between">
-                            <Dialog.Title className="text-base sm:text-lg font-bold">Carrito</Dialog.Title>
+                        <div className="p-4 md:p-5 border-b sticky top-0 bg-white z-10 flex items-center justify-between">
+                            <Dialog.Title className="text-base md:text-lg font-bold">Carrito</Dialog.Title>
                             <button onClick={() => setOpenCart(false)} className="text-gray-500 hover:text-gray-700">✕</button>
                         </div>
 
-                        {/* Body: scroll solo en desktop */}
-                        <div className="p-4 sm:p-5 min-h-0 overflow-visible md:overflow-y-auto md:max-h-[65vh]">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                        {/* Body: scroll SIEMPRE en mobile (flex-1) y en desktop máx 65vh */}
+                        <div className="p-4 md:p-5 flex-1 overflow-y-auto md:max-h-[65vh]">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                                 {items.map(prod => (
-                                    <div key={prod.id} className="border p-3 sm:p-4 rounded-lg">
-                                        <h3 className="font-semibold text-sm sm:text-base">
-                                            {prod.name ?? prod.code ?? `#${prod.id}`}
-                                        </h3>
-                                        <p className="text-xs sm:text-sm text-gray-600">Stock: {fmtQty(prod.quantity)}</p>
-                                        <p className="text-xs sm:text-sm text-gray-600">
+                                    <div key={prod.id} className="border p-3 md:p-4 rounded-lg">
+                                        <h3 className="font-semibold text-sm md:text-base">{prod.name ?? prod.code ?? `#${prod.id}`}</h3>
+                                        <p className="text-xs md:text-sm text-gray-600">Stock: {fmtQty(prod.quantity)}</p>
+                                        <p className="text-xs md:text-sm text-gray-600">
                                             Precio catálogo (unidad): ${Number(prod.sale_price ?? 0).toLocaleString('es-CO')}
                                         </p>
 
-                                        {/* Precio TOTAL del ítem (opcional) */}
                                         <input
                                             type="number"
                                             step="0.01"
@@ -496,16 +426,13 @@ export default function Index() {
                                             onChange={e => setLinePrice(prev => ({ ...prev, [prod.id]: e.target.value }))}
                                         />
 
-                                        {/* Cantidad + botones */}
                                         <div className="mt-3 flex items-stretch gap-2">
                                             <button
                                                 type="button"
                                                 onClick={() => addQty(prod.id, -1, prod.quantity)}
                                                 className="w-10 h-10 grid place-items-center bg-gray-100 rounded-md text-xl"
                                                 aria-label="Restar"
-                                            >
-                                                −
-                                            </button>
+                                            >−</button>
 
                                             <input
                                                 type="number"
@@ -526,9 +453,7 @@ export default function Index() {
                                                 onClick={() => addQty(prod.id, 1, prod.quantity)}
                                                 className="w-10 h-10 grid place-items-center bg-gray-100 rounded-md text-xl"
                                                 aria-label="Sumar"
-                                            >
-                                                ＋
-                                            </button>
+                                            >＋</button>
                                         </div>
                                     </div>
                                 ))}
@@ -536,14 +461,14 @@ export default function Index() {
                         </div>
 
                         {/* Footer fijo */}
-                        <div className="p-4 sm:p-5 border-t sticky bottom-0 bg-white z-10">
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 justify-between">
-                                <div className="text-base sm:text-lg font-semibold">
+                        <div className="p-4 md:p-5 border-t sticky bottom-0 bg-white z-10">
+                            <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 justify-between">
+                                <div className="text-base md:text-lg font-semibold">
                                     Total: ${Number(totalSum).toLocaleString('es-CO')}
                                 </div>
                                 <button
                                     onClick={doCheckout}
-                                    className="w-full sm:w-auto px-4 py-3 sm:py-2 bg-green-600 text-white rounded-md"
+                                    className="w-full md:w-auto px-4 py-3 md:py-2 bg-green-600 text-white rounded-md"
                                 >
                                     Continuar
                                 </button>
@@ -553,31 +478,33 @@ export default function Index() {
                 </div>
             </Dialog>
 
-            {/* ===== Modal Pago / Deuda / Crear venta ===== */}
+            {/* ===== Modal Pago / Deuda ===== */}
             <Dialog open={openPay} onClose={() => setOpenPay(false)} className="relative z-50">
                 <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
-                <div className="fixed inset-0 flex items-center justify-center p-4">
+                <div className="fixed inset-0 flex items-center justify-center p-0 md:p-4">
                     <form
                         onSubmit={submitPay}
-                        className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]"
+                        className="
+              w-full max-w-xl bg-white shadow-xl flex flex-col
+              h-[100dvh] md:h-auto md:max-h-[90vh]
+              rounded-none md:rounded-2xl overflow-hidden
+            "
                     >
-                        <div className="p-4 sm:p-5 border-b sticky top-0 bg-white z-10 flex items-center justify-between">
-                            <Dialog.Title className="text-base sm:text-lg font-bold">
+                        <div className="p-4 md:p-5 border-b sticky top-0 bg-white z-10 flex items-center justify-between">
+                            <Dialog.Title className="text-base md:text-lg font-bold">
                                 {bulkFlow ? 'Pago Carrito' : 'Saldar Deuda'}
                             </Dialog.Title>
                             <button onClick={() => setOpenPay(false)} type="button" className="text-gray-500 hover:text-gray-700">✕</button>
                         </div>
 
-                        <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">
+                        {/* Body con scroll siempre en mobile */}
+                        <div className="p-4 md:p-5 flex-1 overflow-y-auto space-y-4">
                             {bulkFlow && (
                                 <>
                                     <div>
                                         <label className="block text-sm">ID Cliente (4 dígitos, opcional)</label>
                                         <input
-                                            type="number"
-                                            min="0"
-                                            max="9999"
-                                            step="1"
+                                            type="number" min="0" max="9999" step="1"
                                             className="mt-1 w-full border px-3 py-2 rounded-md"
                                             value={customerId}
                                             onChange={e => setCustomerId(e.target.value)}
@@ -600,18 +527,14 @@ export default function Index() {
                                     <div>
                                         <label className="block text-sm">Distancia (km)</label>
                                         <input
-                                            type="number"
-                                            step="0.01"
-                                            min="0"
+                                            type="number" step="0.01" min="0"
                                             className="mt-1 w-full border px-3 py-2 rounded-md"
                                             value={km}
                                             onChange={e => setKm(e.target.value)}
                                             placeholder={deliveryId ? '0.00' : 'Selecciona un dealer'}
                                             disabled={!deliveryId}
                                         />
-                                        <p className="text-xs text-gray-500 mt-1">
-                                            Obligatorio solo si seleccionas un dealer.
-                                        </p>
+                                        <p className="text-xs text-gray-500 mt-1">Obligatorio solo si seleccionas un dealer.</p>
                                     </div>
                                 </>
                             )}
@@ -644,10 +567,7 @@ export default function Index() {
                             <div>
                                 <label htmlFor="pay" className="block text-sm">Monto a pagar ahora</label>
                                 <input
-                                    id="pay"
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
+                                    id="pay" type="number" step="0.01" min="0"
                                     className="mt-1 w-full border px-3 py-2 rounded-md"
                                     value={pd.pay}
                                     onChange={e => setPd(d => ({ ...d, pay: parseFloat(e.target.value) || 0 }))}
@@ -675,8 +595,7 @@ export default function Index() {
                                     <div>
                                         <label className="block text-sm">Nombre deudor</label>
                                         <input
-                                            name="customer_name"
-                                            type="text"
+                                            name="customer_name" type="text"
                                             className="mt-1 w-full border px-3 py-2 rounded-md"
                                             value={pd.name}
                                             onChange={e => setPd(d => ({ ...d, name: e.target.value }))}
@@ -685,8 +604,7 @@ export default function Index() {
                                     <div>
                                         <label className="block text-sm">Teléfono deudor</label>
                                         <input
-                                            name="customer_phone"
-                                            type="text"
+                                            name="customer_phone" type="text"
                                             className="mt-1 w-full border px-3 py-2 rounded-md"
                                             value={pd.phone}
                                             onChange={e => setPd(d => ({ ...d, phone: e.target.value }))}
@@ -696,19 +614,19 @@ export default function Index() {
                             )}
                         </div>
 
-                        <div className="p-4 sm:p-5 border-t bg-white sticky bottom-0">
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 justify-end">
+                        <div className="p-4 md:p-5 border-t bg-white sticky bottom-0">
+                            <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 justify-end">
                                 <button
                                     type="button"
                                     onClick={() => setOpenPay(false)}
-                                    className="w-full sm:w-auto px-4 py-3 sm:py-2 border rounded-md"
+                                    className="w-full md:w-auto px-4 py-3 md:py-2 border rounded-md"
                                     disabled={submitting}
                                 >
                                     Cancelar
                                 </button>
                                 <button
                                     type="submit"
-                                    className={`w-full sm:w-auto px-4 py-3 sm:py-2 text-white rounded-md ${submitting ? 'bg-gray-400' : 'bg-blue-600'}`}
+                                    className={`w-full md:w-auto px-4 py-3 md:py-2 text-white rounded-md ${submitting ? 'bg-gray-400' : 'bg-blue-600'}`}
                                     disabled={submitting}
                                 >
                                     {submitting ? 'Procesando…' : 'Confirmar'}
