@@ -35,6 +35,45 @@ class SaleItem extends Model
         return $this->belongsTo(Inventory::class);
     }
 
+    public function moves()
+    {
+        // Tabla: inventory_moves | FK: sale_item_id | PK local: id
+        return $this->hasMany(InventoryMove::class, 'sale_item_id', 'id');
+    }
+
+    public function getLocationIdAttribute()
+    {
+        // Si ya están cargados los movimientos, úsalo (evita N+1)
+        if ($this->relationLoaded('moves')) {
+            $mv = $this->moves
+                ->where('direction', 'out')
+                ->filter(fn($m) => in_array($m->reason, ['SALE', 'SALE_OUT'], true))
+                ->firstWhere('location_id', '!=', null);
+
+            return $mv ? (int) $mv->location_id : null;
+        }
+
+        // Consulta puntual si no está cargado
+        return optional(
+            InventoryMove::query()
+                ->where('sale_item_id', $this->id)
+                ->where('direction', 'out')
+                ->whereIn('reason', ['SALE', 'SALE_OUT'])
+                ->orderByDesc('id')
+                ->select('location_id')
+                ->first()
+        )->location_id ? (int) optional(
+                InventoryMove::query()
+                    ->where('sale_item_id', $this->id)
+                    ->where('direction', 'out')
+                    ->whereIn('reason', ['SALE', 'SALE_OUT'])
+                    ->orderByDesc('id')
+                    ->select('location_id')
+                    ->first()
+            )->location_id : null;
+    }
+
+
     // Calcula total si no viene (qty*price - discount) y evita negativos
     protected static function booted()
     {

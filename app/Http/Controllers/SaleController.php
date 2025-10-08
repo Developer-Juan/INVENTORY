@@ -637,7 +637,7 @@ class SaleController extends Controller
     }
 
 
-    public function cancel(Request $request, Sale $sale)
+    public function cancel(Request $request, \App\Models\Sale $sale)
     {
         $data = $request->validate([
             'reason' => ['nullable', 'string', 'max:191'],
@@ -647,52 +647,36 @@ class SaleController extends Controller
 
         try {
             DB::transaction(function () use ($sale, $actor, $data) {
-                // 1) Venta + líneas con lock
-                $sale = Sale::with([
-                    'items:id,sale_id,inventory_id,quantity,location_id,total',
+                // 1) Venta + líneas + movimientos (NO pedimos sale_items.location_id)
+                $sale = \App\Models\Sale::with([
+                    'items:id,sale_id,inventory_id,quantity,total',
+                    'items.moves:id,sale_item_id,location_id,direction,reason',
                 ])
                     ->whereKey($sale->id)
                     ->lockForUpdate()
                     ->firstOrFail();
 
                 // 2) Doble anulación
-                if ($sale->status === 'anulada' || SaleVoid::where('sale_id', $sale->id)->exists()) {
+                if ($sale->status === 'anulada' || \App\Models\SaleVoid::where('sale_id', $sale->id)->exists()) {
                     throw ValidationException::withMessages(['sale' => 'La venta ya estaba anulada.']);
                 }
 
-                // 3) Inferir ubicaciones desde movimientos si faltan
-                $missingAnyLoc = (int) ($sale->location_id ?? 0) <= 0
-                    && !$sale->items->contains(fn($it) => (int) ($it->location_id ?? 0) > 0);
-
-                if ($missingAnyLoc && class_exists(\App\Models\InventoryMove::class)) {
-                    $moves = \App\Models\InventoryMove::query()
-                        ->where('sale_id', $sale->id)
-                        ->where('direction', 'out')
-                        ->whereIn('reason', ['SALE', 'SALE_OUT'])
-                        ->orderByDesc('id')
-                        ->get(['sale_item_id', 'location_id']);
-
-                    $byItem = $moves->filter(fn($m) => $m->sale_item_id && $m->location_id)
-                        ->keyBy('sale_item_id');
-
-                    foreach ($sale->items as $line) {
-                        if ((int) ($line->location_id ?? 0) <= 0) {
-                            $mv = $byItem->get($line->id);
-                            if ($mv && (int) $mv->location_id > 0) {
-                                $line->location_id = (int) $mv->location_id; // asignación virtual
-                            }
-                        }
-                    }
-
-                    if ((int) ($sale->location_id ?? 0) <= 0) {
-                        $glob = $moves->firstWhere('location_id', '!=', null);
-                        if ($glob) {
-                            $sale->location_id = (int) $glob->location_id;
+                // 3) Si falta ubicación global, intenta inferirla desde movimientos
+                if ((int) ($sale->location_id ?? 0) <= 0) {
+                    if (class_exists(\App\Models\InventoryMove::class)) {
+                        $firstMoveLoc = \App\Models\InventoryMove::query()
+                            ->where('sale_id', $sale->id)
+                            ->where('direction', 'out')
+                            ->whereIn('reason', ['SALE', 'SALE_OUT'])
+                            ->orderByDesc('id')
+                            ->value('location_id');
+                        if ((int) ($firstMoveLoc ?? 0) > 0) {
+                            $sale->location_id = (int) $firstMoveLoc; // virtual, no persiste ahora
                         }
                     }
                 }
 
-                // 4) Validar que exista alguna ubicación
+                // 4) Validar que exista alguna ubicación (global o por ítem vía atributo virtual)
                 $hayUbic = (int) ($sale->location_id ?? 0) > 0
                     || $sale->items->contains(fn($it) => (int) ($it->location_id ?? 0) > 0);
 
@@ -702,9 +686,8 @@ class SaleController extends Controller
                     ]);
                 }
 
-                // ======== CAJA: calcular efectivo real de la venta ========
+                // 5) Caja: calcular efectivo realmente pagado
                 $sale->loadMissing([
-                    'items:id,sale_id,total,location_id',
                     'payments:id,sale_id,payment_method_id,amount',
                     'payments.method:id,is_cash',
                 ]);
@@ -715,16 +698,16 @@ class SaleController extends Controller
                         $cashPaid = round($cashPaid + (float) $pay->amount, 2);
                     }
                 }
-                // ===========================================================
 
-                // 5) Revertir stock por ítem al origen
+                // 6) Revertir stock por ítem a su ubicación (virtual o global)
                 foreach ($sale->items as $line) {
                     $qty = round((float) $line->quantity, 3);
                     if ($qty <= 0)
                         continue;
 
                     $invId = (int) $line->inventory_id;
-                    $locId = (int) ($line->location_id ?: $sale->location_id);
+                    // location_id virtual (getter en SaleItem) o fallback global de la venta
+                    $locId = (int) (($line->location_id ?? null) ?: $sale->location_id);
 
                     if ($locId <= 0) {
                         throw ValidationException::withMessages([
@@ -764,12 +747,41 @@ class SaleController extends Controller
                     }
                 }
 
-                // ======== CAJA: restar efectivo por ubicación (helpers) ========
+                // 7) Caja: prorratear y restar efectivo por ubicación (sin depender de columna real)
                 if ($cashPaid > 0) {
-                    // distribuye por ubicación según totales por ítem
-                    $dist = $this->distributeCashByLocation($sale, $cashPaid);
+                    // totales por loc, usando atributo virtual o global
+                    $totalsByLoc = [];
+                    $totalLinesSum = 0.0;
+
+                    foreach ($sale->items as $line) {
+                        $lineTotal = round((float) ($line->total ?? 0), 2);
+                        $totalLinesSum = round($totalLinesSum + $lineTotal, 2);
+
+                        $locId = (int) (($line->location_id ?? null) ?: $sale->location_id);
+                        if ($locId <= 0)
+                            continue;
+
+                        $totalsByLoc[$locId] = round(($totalsByLoc[$locId] ?? 0) + $lineTotal, 2);
+                    }
+
+                    // distribución por proporción de totales de ítems
+                    $dist = [];
+                    if ($totalLinesSum > 0) {
+                        foreach ($totalsByLoc as $locId => $amountAtLoc) {
+                            $dist[$locId] = round($cashPaid * ($amountAtLoc / $totalLinesSum), 2);
+                        }
+                    } else {
+                        // fallback: todo a la location global si existe
+                        if ((int) ($sale->location_id ?? 0) > 0) {
+                            $dist[(int) $sale->location_id] = $cashPaid;
+                        }
+                    }
 
                     foreach ($dist as $locId => $amt) {
+                        if ($amt <= 0)
+                            continue;
+
+                        // Usa tu helper existente para caja por ubicación
                         $this->adjustLocationCash(
                             (int) $locId,
                             (float) $amt,
@@ -781,9 +793,8 @@ class SaleController extends Controller
                         );
                     }
                 }
-                // =============================================================
 
-                // 6) Marcar venta + auditoría (guarda estado previo en snapshot)
+                // 8) Marcar venta y auditar
                 $prevStatus = $sale->status;
 
                 $sale->update([
@@ -792,7 +803,7 @@ class SaleController extends Controller
                         : 'anulada'
                 ]);
 
-                SaleVoid::create([
+                \App\Models\SaleVoid::create([
                     'sale_id' => $sale->id,
                     'canceled_by' => $actor->id,
                     'reason' => $data['reason'] ?? null,
@@ -804,14 +815,15 @@ class SaleController extends Controller
                             'total' => $sale->total,
                             'paid' => $sale->paid,
                             'balance' => $sale->balance,
-                            'status' => $prevStatus, // estado previo
+                            'status' => $prevStatus,
                         ],
                         'sale_location_id' => $sale->location_id,
                         'items' => $sale->items->map(fn($i) => [
                             'sale_item_id' => $i->id ?? null,
                             'inventory_id' => $i->inventory_id,
                             'quantity' => $i->quantity,
-                            'location_id' => $i->location_id ?: $sale->location_id,
+                            // siempre presente (virtual o global)
+                            'location_id' => (int) (($i->location_id ?? null) ?: $sale->location_id),
                             'total' => $i->total ?? null,
                         ])->values(),
                     ],
