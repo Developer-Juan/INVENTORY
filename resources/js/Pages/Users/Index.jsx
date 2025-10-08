@@ -1,3 +1,4 @@
+// resources/js/Pages/Users/Index.jsx
 import React, { useEffect, useState } from 'react';
 import { Head, Link, useForm, usePage } from '@inertiajs/react';
 import { Dialog } from '@headlessui/react';
@@ -20,22 +21,19 @@ export default function UsersIndex() {
         flash = {},
     } = usePage().props;
 
-    // normaliza paginator
     const rows = Array.isArray(payload) ? payload : payload?.data ?? [];
     const links = Array.isArray(payload) ? [] : payload?.links ?? [];
 
-    // toasts
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
         if (flash?.error) toast.error(flash.error || 'Ocurrió un error');
     }, [flash]);
 
-    // modales/estado
     const [openCreate, setOpenCreate] = useState(false);
     const [openEdit, setOpenEdit] = useState(false);
     const [editingId, setEditingId] = useState(null);
 
-    // form crear (incluye crear nueva location)
+    // ------- CREATE -------
     const createForm = useForm({
         name: '',
         email: '',
@@ -47,7 +45,7 @@ export default function UsersIndex() {
         new_location_name: '',
     });
 
-    // form editar (password opcional)
+    // ------- EDIT -------
     const editForm = useForm({
         name: '',
         email: '',
@@ -55,12 +53,13 @@ export default function UsersIndex() {
         password_confirmation: '',
         roles: [],
         location_id: '',
+        // nuevos para renombrar:
+        rename_location: false,
+        location_name: '',
     });
 
-    // borrar
     const delForm = useForm({});
 
-    // abrir modal editar
     function onOpenEdit(u) {
         setEditingId(u.id);
         const locId = u.location_id ?? u.location?.id ?? '';
@@ -71,11 +70,12 @@ export default function UsersIndex() {
             password_confirmation: '',
             roles: (u.roles || []).map((r) => r.name),
             location_id: locId,
+            rename_location: false,
+            location_name: u.location?.name || '',
         });
         setOpenEdit(true);
     }
 
-    // toggle de roles (reutilizable)
     function onToggleRole(form, roleName) {
         const has = form.data.roles.includes(roleName);
         form.setData(
@@ -84,9 +84,9 @@ export default function UsersIndex() {
         );
     }
 
-    // acciones
     function submitCreate(e) {
         e.preventDefault();
+        if (createForm.processing) return;
         createForm.post(route('users.store'), {
             preserveScroll: true,
             onSuccess: () => {
@@ -98,6 +98,7 @@ export default function UsersIndex() {
 
     function submitEdit(e) {
         e.preventDefault();
+        if (editForm.processing) return;
         editForm.put(route('users.update', editingId), {
             preserveScroll: true,
             onSuccess: () => setOpenEdit(false),
@@ -108,6 +109,9 @@ export default function UsersIndex() {
         if (!confirm('¿Eliminar este usuario?')) return;
         delForm.delete(route('users.destroy', id), { preserveScroll: true });
     }
+
+    // ayuda para obtener el nombre de la location desde el id
+    const nameOfLocation = (id) => locations.find((l) => String(l.id) === String(id))?.name || '';
 
     return (
         <AuthenticatedLayout
@@ -448,12 +452,23 @@ export default function UsersIndex() {
                                 </div>
                             </div>
 
+                            {/* Reasignar ubicación */}
                             <div>
                                 <label className="block text-sm">Ubicación (dealer)</label>
                                 <select
                                     className="mt-1 w-full border rounded px-3 py-2"
                                     value={editForm.data.location_id}
-                                    onChange={(e) => editForm.setData('location_id', e.target.value)}
+                                    onChange={(e) => {
+                                        const newId = e.target.value;
+                                        // si ya está encendido el renombrado, pre-cargamos el nombre de la selección
+                                        editForm.setData({
+                                            ...editForm.data,
+                                            location_id: newId,
+                                            location_name: editForm.data.rename_location
+                                                ? nameOfLocation(newId)
+                                                : editForm.data.location_name,
+                                        });
+                                    }}
                                 >
                                     <option value="">— Ninguna —</option>
                                     {locations.map((l) => (
@@ -464,6 +479,50 @@ export default function UsersIndex() {
                                 </select>
                                 {editForm.errors.location_id && (
                                     <p className="text-xs text-red-600">{editForm.errors.location_id}</p>
+                                )}
+                            </div>
+
+                            {/* Renombrar ubicación asignada */}
+                            <div className="space-y-2">
+                                <label className="inline-flex items-center gap-2 text-sm">
+                                    <input
+                                        type="checkbox"
+                                        checked={editForm.data.rename_location}
+                                        onChange={(e) => {
+                                            const checked = e.target.checked;
+                                            editForm.setData({
+                                                ...editForm.data,
+                                                rename_location: checked,
+                                                // si se activa y hay una location elegida, pre-cargar su nombre
+                                                location_name: checked
+                                                    ? (editForm.data.location_id
+                                                        ? nameOfLocation(editForm.data.location_id)
+                                                        : editForm.data.location_name)
+                                                    : editForm.data.location_name,
+                                            });
+                                        }}
+                                        disabled={!editForm.data.location_id}
+                                        title={!editForm.data.location_id ? 'Selecciona una ubicación para poder renombrarla' : ''}
+                                    />
+                                    <span>Renombrar ubicación asignada</span>
+                                </label>
+
+                                {editForm.data.rename_location && (
+                                    <>
+                                        <input
+                                            className="mt-1 w-full border rounded px-3 py-2"
+                                            placeholder="Nuevo nombre de la ubicación"
+                                            value={editForm.data.location_name}
+                                            onChange={(e) => editForm.setData('location_name', e.target.value)}
+                                        />
+                                        {editForm.errors.location_name && (
+                                            <p className="text-xs text-red-600">{editForm.errors.location_name}</p>
+                                        )}
+                                        <p className="text-xs text-gray-500">
+                                            Se renombrará la ubicación actualmente asignada al usuario (después de aplicar el cambio de
+                                            “Ubicación” si también lo modificas).
+                                        </p>
+                                    </>
                                 )}
                             </div>
 

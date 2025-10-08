@@ -93,10 +93,16 @@ class UserController extends Controller
             'password' => 'nullable|min:8|confirmed',
             'roles' => 'array',
             'location_id' => 'nullable|exists:locations,id',
+
+            // ↓ nuevos campos para renombrar la ubicación asignada
+            'rename_location' => 'sometimes|boolean',
+            'location_name' => 'nullable|string|max:150',
+        ], [
+            'location_name.max' => 'El nombre de la ubicación no puede exceder 150 caracteres.',
         ]);
 
         DB::transaction(function () use ($user, $data) {
-            // actualizar datos base
+            // 1) actualizar datos base
             $payload = [
                 'name' => $data['name'],
                 'email' => $data['email'],
@@ -106,27 +112,48 @@ class UserController extends Controller
             }
             $user->update($payload);
 
-            // roles
+            // 2) roles
             $user->syncRoles($data['roles'] ?? []);
 
-            // (opcional) reasignar ubicación:
-            // 1) desasignar cualquier location actual del user
+            // 3) (re)asignar ubicación si mandaron location_id
+            //    primero liberar cualquiera anterior del usuario
             Location::where('user_id', $user->id)->update(['user_id' => null]);
 
-            // 2) asignar nueva si mandaron location_id
             if (!empty($data['location_id'])) {
                 $loc = Location::lockForUpdate()->find($data['location_id']);
+
                 if ($loc->user_id && $loc->user_id !== $user->id) {
                     throw ValidationException::withMessages([
                         'location_id' => 'La ubicación seleccionada ya está asignada a otro usuario.',
                     ]);
                 }
+
                 $loc->update(['user_id' => $user->id]);
+            }
+
+            // 4) Renombrar la ubicación actualmente asignada (si lo piden)
+            if (!empty($data['rename_location']) && !empty($data['location_name'])) {
+                // Bloqueamos y buscamos la location que *ahora* quedó asignada a este usuario
+                $currentLoc = Location::lockForUpdate()
+                    ->where('user_id', $user->id)
+                    ->first();
+
+                if (!$currentLoc) {
+                    throw ValidationException::withMessages([
+                        'location_name' => 'No hay una ubicación asignada para poder renombrarla.',
+                    ]);
+                }
+
+                // (opcional) si quieres restringir que sólo se puedan renombrar dealers:
+                // if ($currentLoc->type !== 'dealer') { ... }
+
+                $currentLoc->update(['name' => $data['location_name']]);
             }
         });
 
         return back()->with('success', 'Usuario actualizado.');
     }
+
 
     public function destroy(User $user)
     {
