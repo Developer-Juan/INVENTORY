@@ -275,18 +275,17 @@ class SaleController extends Controller
                     $stock->on_hand = $q3($stock->on_hand - $qty);
                     $stock->save();
 
-                    // Guardar línea
+                    // Guardar línea (⚠️ SIN location_id: Opción 2, NO existe la columna)
                     $saleItem = SaleItem::create([
                         'sale_id' => $sale->id,
                         'inventory_id' => $invId,
-                        'location_id' => $lineLocationId,
                         'quantity' => $q3($qty),
                         'unit_price' => $unitPriceEffective,
                         'discount' => $m2($disc),
                         'total' => $m2($lineTotal),
                     ]);
 
-                    // Movimiento OUT
+                    // Movimiento OUT (aquí sí registramos la ubicación)
                     if (class_exists(InventoryMove::class)) {
                         InventoryMove::create([
                             'inventory_id' => $invId,
@@ -300,7 +299,7 @@ class SaleController extends Controller
                         ]);
                     }
 
-                    // Caja proporcional por ubicación
+                    // Caja proporcional por ubicación (para luego prorratear pagos en efectivo)
                     $totalsByLoc[$lineLocationId] = ($totalsByLoc[$lineLocationId] ?? 0) + $lineTotal;
                 }
 
@@ -309,7 +308,6 @@ class SaleController extends Controller
                 $deliveryPay = 0.0; // pago al dealer
 
                 if ($hasDealer && $kmVal > 0) {
-                    // tarifa (usa servicio si existe, si no fallback ENV)
                     if (method_exists($this->fare, 'rate')) {
                         $deliveryRate = $m2((float) $this->fare->rate($kmVal));
                     } elseif (method_exists($this->fare, 'rateForKm')) {
@@ -320,7 +318,6 @@ class SaleController extends Controller
                         $deliveryRate = $m2($this->computeDeliveryRateFromEnv($kmVal));
                     }
 
-                    // pago al dealer
                     if (method_exists($this->fare, 'pay')) {
                         $deliveryPay = $m2((float) $this->fare->pay($kmVal, $deliveryRate));
                     } elseif (method_exists($this->fare, 'payForKm')) {
@@ -339,15 +336,13 @@ class SaleController extends Controller
                             $tmp = min($maxPay, $tmp);
                         $deliveryPay = $m2($tmp);
                     }
-
-                    // NO lo meto en $totalsByLoc, porque NO entra al total de la venta aquí.
+                    // NO lo metas en $totalsByLoc, no entra al total de la venta.
                 }
 
                 // === Totales cabecera (SIN delivery_rate)
                 $headerDiscount = $m2($data['discount'] ?? 0);
                 $headerTax = $m2($data['tax'] ?? 0);
-                $total = $m2(max(0, $subtotal - $headerDiscount + $headerTax));
-                // ^^^ OJO: delivery_rate NO se suma aquí porque ya lo manejas en el total global.
+                $total = $m2(max(0, $subtotal - $headerDiscount + $headerTax)); // SIN delivery
 
                 // Pagos
                 $paid = 0.0;
@@ -388,49 +383,63 @@ class SaleController extends Controller
                     'subtotal' => $m2($subtotal),
                     'discount' => $headerDiscount,
                     'tax' => $headerTax,
-                    'delivery_rate' => $deliveryRate, // guardo para mostrar/liquidar
-                    'delivery_pay' => $deliveryPay,  // lo que se paga al dealer
-                    'total' => $total,        // SIN delivery
+                    'delivery_rate' => $deliveryRate,
+                    'delivery_pay' => $deliveryPay,
+                    'total' => $total,   // SIN delivery
                     'paid' => $m2($paid),
                     'balance' => $balance,
                     'status' => $status,
                 ]);
 
                 // ================== CAJA (solo efectivo) ==================
-                $methods = PaymentMethod::select('id', 'is_cash')->get()->keyBy('id');
+                // Cargamos solo los métodos usados y aplicamos fallback por nombre/código.
+                $pmIds = collect($data['payments'] ?? [])->pluck('payment_method_id')->filter()->unique()->values();
+                $methods = PaymentMethod::whereIn('id', $pmIds)->get()->keyBy('id');
 
                 $cashIn = 0.0;
                 foreach (($data['payments'] ?? []) as $p) {
                     $mid = (int) ($p['payment_method_id'] ?? 0);
                     $amt = $m2($p['amount'] ?? 0);
-                    if ($amt > 0 && ($methods[$mid]->is_cash ?? false)) {
+                    $pm = $methods->get($mid);
+
+                    $isCash = false;
+                    if ($pm) {
+                        $code = strtolower((string) ($pm->code ?? ''));
+                        $name = strtolower((string) ($pm->name ?? ''));
+                        $isCash = (bool) ($pm->is_cash ?? false)
+                            || str_contains($code, 'cash')
+                            || str_contains($name, 'efectivo');
+                    }
+
+                    if ($amt > 0 && $isCash) {
                         $cashIn = $m2($cashIn + $amt);
                     }
                 }
 
                 if ($cashIn > 0) {
-                    $sumTotals = array_sum($totalsByLoc);
+                    $sumTotals = (float) array_sum($totalsByLoc);
 
                     $dist = [];
                     if ($sumTotals > 0) {
                         // Proporcional por ubicación según totales de líneas (sin delivery)
                         $acc = 0.0;
                         $keys = array_keys($totalsByLoc);
-                        $last = end($keys);
+                        $lastK = end($keys);
                         foreach ($keys as $k) {
-                            if ($k !== $last) {
+                            if ($k !== $lastK) {
                                 $part = $m2($cashIn * ($totalsByLoc[$k] / $sumTotals));
                                 $dist[$k] = $part;
                                 $acc = $m2($acc + $part);
                             } else {
-                                $dist[$k] = $m2($cashIn - $acc); // resto por redondeo
+                                // Última ubicación: resto por redondeo
+                                $dist[$k] = $m2($cashIn - $acc);
                             }
                         }
                     } else {
                         // Fallback: todo a la ubicación de cabecera
                         if ((int) $locationId <= 0) {
-                            throw \Illuminate\Validation\ValidationException::withMessages([
-                                'cash' => 'No se pudo determinar una ubicación válida para registrar caja (falta location_id en la venta).',
+                            throw ValidationException::withMessages([
+                                'cash' => 'No se pudo determinar una ubicación válida para registrar caja (location_id).',
                             ]);
                         }
                         $dist[(int) $locationId] = $m2($cashIn);
@@ -438,14 +447,17 @@ class SaleController extends Controller
 
                     // Aplica movimientos de caja
                     foreach ($dist as $locId => $amt) {
+                        if ($amt <= 0)
+                            continue;
+
                         $this->adjustLocationCash(
                             (int) $locId,
                             (float) $amt,
-                            'in',
-                            'SALE',
+                            'in',            // entrada de efectivo
+                            'SALE',          // razón
                             $sale->id,
                             $actor->id,
-                            'Efectivo venta'
+                            'Efectivo venta' // nota
                         );
                     }
                 }
@@ -472,6 +484,7 @@ class SaleController extends Controller
             ]);
         }
     }
+
 
 
 
@@ -647,7 +660,7 @@ class SaleController extends Controller
 
         try {
             DB::transaction(function () use ($sale, $actor, $data) {
-                // 1) Venta + líneas + movimientos (NO pedimos sale_items.location_id)
+                // 1) Venta + líneas + movimientos (NO pedimos sale_items.location_id real)
                 $sale = \App\Models\Sale::with([
                     'items:id,sale_id,inventory_id,quantity,total',
                     'items.moves:id,sale_item_id,location_id,direction,reason',
@@ -661,40 +674,50 @@ class SaleController extends Controller
                     throw ValidationException::withMessages(['sale' => 'La venta ya estaba anulada.']);
                 }
 
-                // 3) Si falta ubicación global, intenta inferirla desde movimientos
-                if ((int) ($sale->location_id ?? 0) <= 0) {
-                    if (class_exists(\App\Models\InventoryMove::class)) {
-                        $firstMoveLoc = \App\Models\InventoryMove::query()
-                            ->where('sale_id', $sale->id)
-                            ->where('direction', 'out')
-                            ->whereIn('reason', ['SALE', 'SALE_OUT'])
-                            ->orderByDesc('id')
-                            ->value('location_id');
-                        if ((int) ($firstMoveLoc ?? 0) > 0) {
-                            $sale->location_id = (int) $firstMoveLoc; // virtual, no persiste ahora
-                        }
+                // 3) Si falta ubicación global, inferir desde movimientos
+                if ((int) ($sale->location_id ?? 0) <= 0 && class_exists(\App\Models\InventoryMove::class)) {
+                    $firstMoveLoc = \App\Models\InventoryMove::query()
+                        ->where('sale_id', $sale->id)
+                        ->where('direction', 'out')
+                        ->whereIn('reason', ['SALE', 'SALE_OUT'])
+                        ->orderByDesc('id')
+                        ->value('location_id');
+                    if ((int) ($firstMoveLoc ?? 0) > 0) {
+                        $sale->location_id = (int) $firstMoveLoc; // virtual
                     }
                 }
 
-                // 4) Validar que exista alguna ubicación (global o por ítem vía atributo virtual)
+                // 4) Debe existir al menos una ubicación válida
                 $hayUbic = (int) ($sale->location_id ?? 0) > 0
                     || $sale->items->contains(fn($it) => (int) ($it->location_id ?? 0) > 0);
 
                 if (!$hayUbic) {
                     throw ValidationException::withMessages([
-                        'sale' => 'La venta no tiene ubicación asociada (ni por ítem); no es posible revertir stock.',
+                        'sale' => 'La venta no tiene ubicación asociada (ni por ítem); no es posible revertir stock/caja.',
                     ]);
                 }
 
-                // 5) Caja: calcular efectivo realmente pagado
+                // 5) Caja: calcular efectivo realmente pagado (con fallback por code/name)
                 $sale->loadMissing([
                     'payments:id,sale_id,payment_method_id,amount',
-                    'payments.method:id,is_cash',
+                    'payments.method:id,code,name,is_cash',
                 ]);
 
                 $cashPaid = 0.0;
                 foreach ($sale->payments as $pay) {
-                    if (($pay->method->is_cash ?? false) && (float) $pay->amount > 0) {
+                    if ((float) $pay->amount <= 0)
+                        continue;
+
+                    $m = $pay->method;
+                    $isCash = false;
+                    if ($m) {
+                        $code = strtolower((string) ($m->code ?? ''));
+                        $name = strtolower((string) ($m->name ?? ''));
+                        $isCash = (bool) ($m->is_cash ?? false)
+                            || str_contains($code, 'cash')
+                            || str_contains($name, 'efectivo');
+                    }
+                    if ($isCash) {
                         $cashPaid = round($cashPaid + (float) $pay->amount, 2);
                     }
                 }
@@ -706,7 +729,6 @@ class SaleController extends Controller
                         continue;
 
                     $invId = (int) $line->inventory_id;
-                    // location_id virtual (getter en SaleItem) o fallback global de la venta
                     $locId = (int) (($line->location_id ?? null) ?: $sale->location_id);
 
                     if ($locId <= 0) {
@@ -747,7 +769,7 @@ class SaleController extends Controller
                     }
                 }
 
-                // 7) Caja: prorratear y restar efectivo por ubicación (sin depender de columna real)
+                // 7) Caja: prorratear y RESTAR efectivo por ubicación
                 if ($cashPaid > 0) {
                     // totales por loc, usando atributo virtual o global
                     $totalsByLoc = [];
@@ -764,14 +786,24 @@ class SaleController extends Controller
                         $totalsByLoc[$locId] = round(($totalsByLoc[$locId] ?? 0) + $lineTotal, 2);
                     }
 
-                    // distribución por proporción de totales de ítems
                     $dist = [];
                     if ($totalLinesSum > 0) {
-                        foreach ($totalsByLoc as $locId => $amountAtLoc) {
-                            $dist[$locId] = round($cashPaid * ($amountAtLoc / $totalLinesSum), 2);
+                        // Proporcional a los totales de líneas (tal como se hizo al ingresar la caja)
+                        $acc = 0.0;
+                        $keys = array_keys($totalsByLoc);
+                        $last = end($keys);
+                        foreach ($keys as $k) {
+                            if ($k !== $last) {
+                                $part = round($cashPaid * ($totalsByLoc[$k] / $totalLinesSum), 2);
+                                $dist[$k] = $part;
+                                $acc = round($acc + $part, 2);
+                            } else {
+                                // Resto por redondeo
+                                $dist[$k] = round($cashPaid - $acc, 2);
+                            }
                         }
                     } else {
-                        // fallback: todo a la location global si existe
+                        // Fallback: todo a la ubicación global si existe
                         if ((int) ($sale->location_id ?? 0) > 0) {
                             $dist[(int) $sale->location_id] = $cashPaid;
                         }
@@ -781,12 +813,12 @@ class SaleController extends Controller
                         if ($amt <= 0)
                             continue;
 
-                        // Usa tu helper existente para caja por ubicación
+                        // salida de caja por anulación
                         $this->adjustLocationCash(
                             (int) $locId,
                             (float) $amt,
-                            'out',
-                            'SALE_CANCEL',
+                            'out',            // salida
+                            'SALE_CANCEL',    // razón
                             $sale->id,
                             $actor->id,
                             'Reverso efectivo por anulación'
