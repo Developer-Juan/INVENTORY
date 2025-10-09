@@ -36,32 +36,47 @@ class SaleController extends Controller
         $sales = Sale::query()
             ->with([
                 'user:id,name',
-                'items' => fn($q) => $q->select('id', 'sale_id', 'inventory_id', 'quantity')
-                    ->with(['inventory:id,name']),
+
+                // Ítems con nombre y unidad para el hover-preview
+                'items' => fn($q) => $q->select('id', 'sale_id', 'inventory_id', 'quantity', 'total')
+                    ->with(['inventory:id,name,unit']),
+
+                // **Métodos de pago** (mismo criterio que en show)
+                'payments' => fn($q) => $q->select('id', 'sale_id', 'payment_method_id')
+                    ->with(['method:id,code,name']),
             ])
             ->withCount('items')
-            ->select('id', 'user_id', 'customer_id', 'subtotal', 'discount', 'tax', 'total', 'paid', 'balance', 'status', 'created_at')
+            ->select(
+                'id',
+                'user_id',
+                'customer_id',
+                'subtotal',
+                'discount',
+                'tax',
+                'total',
+                'paid',
+                'balance',
+                'status',
+                'created_at'
+            )
             ->latest()
             ->paginate(15)
             ->withQueryString();
 
-        // ==== Resolver la ubicación base para MOSTRAR stock en el carrito ====
+        // ==== Resolver ubicación base para stock del carrito ====
         $principalId = Location::whereIn('type', ['principal', 'main'])->value('id');
         $userLocId = Location::where('user_id', $user->id)->value('id');
         $dealerLocId = Location::where('type', 'dealer')->where('user_id', $user->id)->value('id');
 
         if (method_exists($user, 'hasRole') && $user->hasRole('dealer')) {
-            // Dealer: su propia ubicación dealer (fallbacks por si falta)
             $myLocationId = $dealerLocId ?: $userLocId ?: $principalId ?: Location::min('id');
         } elseif (method_exists($user, 'hasRole') && ($user->hasRole('admin') || $user->hasRole('super-admin'))) {
-            // Admin: SIEMPRE prioriza el principal
             $myLocationId = $principalId ?: $userLocId ?: Location::min('id');
         } else {
-            // Otros roles: la ubicación asociada al usuario; si no, principal
             $myLocationId = $userLocId ?: $principalId ?: Location::min('id');
         }
 
-        // Ítems con disponible (on_hand - reserved) en ESA ubicación
+        // Ítems disponibles (on_hand - reserved) en esa ubicación
         $items = Inventory::query()
             ->leftJoin('inventory_stocks as s', function ($j) use ($myLocationId) {
                 $j->on('s.inventory_id', '=', 'inventories.id')
@@ -75,11 +90,14 @@ class SaleController extends Controller
                 DB::raw('(COALESCE(s.on_hand,0) - COALESCE(s.reserved,0)) as quantity'),
             ]);
 
-        $paymentMethods = PaymentMethod::select('id', 'code', 'name')->orderBy('name')->get();
+        // Métodos de pago disponibles (para el modal de pago)
+        $paymentMethods = PaymentMethod::select('id', 'code', 'name')
+            ->orderBy('name')
+            ->get();
 
-        // Solo dealers que tengan ubicación dealer creada
+        // Solo dealers con ubicación dealer creada
         $deliverers = User::role('dealer')
-            ->whereIn('id', Location::where('type', 'dealer')->pluck('user_id'))
+            ->whereIn('id', Location::where('type', 'dealer')->whereNotNull('user_id')->pluck('user_id'))
             ->select('id', 'name')
             ->orderBy('name')
             ->get();
@@ -92,6 +110,8 @@ class SaleController extends Controller
             'current_location_id' => $myLocationId,
         ]);
     }
+
+
 
 
     public function show(Sale $sale)

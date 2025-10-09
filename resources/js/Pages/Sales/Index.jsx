@@ -1,9 +1,216 @@
 // resources/js/Pages/Sales/Index.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Fragment } from 'react';
 import { Head, usePage, Link, router } from '@inertiajs/react';
-import { Dialog } from '@headlessui/react';
+import { Dialog, Popover, Transition, Portal } from '@headlessui/react';
 import toast from 'react-hot-toast';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+
+function EyeIcon({ className = 'w-5 h-5' }) {
+    return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path strokeWidth="2" d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z" />
+            <circle cx="12" cy="12" r="3" strokeWidth="2" />
+        </svg>
+    );
+}
+
+/** Popover responsive: hover en desktop, tap en mobile, sin clipping (usa Portal) */
+function ItemsPopover({ sale }) {
+    const [items, setItems] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const loadedRef = useRef(false);
+    const btnRef = useRef(null);
+    const closeTimer = useRef(null);
+
+    useEffect(() => () => clearTimeout(closeTimer.current), []);
+
+    const isDesktop = () => window.matchMedia('(min-width: 768px)').matches;
+
+    async function ensureLoaded() {
+        if (loadedRef.current) return;
+        if (Array.isArray(sale.items)) {
+            setItems(sale.items);
+            loadedRef.current = true;
+            return;
+        }
+        try {
+            setLoading(true);
+            const res = await fetch(route('sales.items', sale.id), {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            const data = await res.json();
+            setItems(data?.items ?? []);
+            loadedRef.current = true;
+        } catch (e) {
+            console.error(e);
+            toast.error('No se pudieron cargar los ítems');
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    const openViaHover = (isOpen) => {
+        if (!isOpen && btnRef.current) btnRef.current.click();
+    };
+    const scheduleClose = (isOpen) => {
+        if (!isOpen) return;
+        clearTimeout(closeTimer.current);
+        closeTimer.current = setTimeout(() => {
+            if (btnRef.current) btnRef.current.click();
+        }, 120);
+    };
+
+    const panelFixedStyle = () => {
+        const b = btnRef.current?.getBoundingClientRect();
+        if (!b) return {};
+        return {
+            position: 'fixed',
+            top: b.bottom + 8,
+            left: Math.min(
+                Math.max(8, b.left),
+                Math.max(8, window.innerWidth - 8 - 288) // 288 = w-72
+            ),
+        };
+    };
+
+    const PanelContent = () => (
+        <>
+            <div className="text-xs font-semibold text-gray-700 mb-1">Ítems vendidos</div>
+            {loading ? (
+                <div className="text-xs text-gray-500">Cargando…</div>
+            ) : !items || items.length === 0 ? (
+                <div className="text-xs text-gray-500">Sin ítems.</div>
+            ) : (
+                <ul className="text-sm space-y-1">
+                    {items.map((it) => {
+                        const qty = Number(it.quantity ?? it.qty ?? 0);
+                        const name = it?.inventory?.name ?? it?.name ?? `#${it.inventory_id ?? it.id}`;
+                        const unit = it?.inventory?.unit ?? it?.unit ?? '';
+                        return (
+                            <li key={it.id ?? `${name}-${qty}`}>
+                                <span className="text-gray-800">{name}</span>{' — '}
+                                <span className="text-gray-600">
+                                    {qty.toLocaleString('es-CO', { maximumFractionDigits: 3 })}
+                                    {unit ? ` ${unit}` : ''}
+                                </span>
+                            </li>
+                        );
+                    })}
+                </ul>
+            )}
+        </>
+    );
+
+    return (
+        <Popover className="relative inline-block">
+            {({ open }) => (
+                <>
+                    <div
+                        className="inline-flex items-center"
+                        onMouseEnter={async () => {
+                            if (!isDesktop()) return;
+                            await ensureLoaded();
+                            openViaHover(open);
+                        }}
+                        onMouseLeave={() => {
+                            if (!isDesktop()) return;
+                            scheduleClose(open);
+                        }}
+                    >
+                        <Popover.Button
+                            ref={btnRef}
+                            className="p-1 rounded hover:bg-gray-100 focus:outline-none"
+                            onClick={ensureLoaded}
+                            aria-label="Ver ítems"
+                        >
+                            <EyeIcon className="w-5 h-5 text-gray-600" />
+                        </Popover.Button>
+                    </div>
+
+                    {/* Desktop */}
+                    <Portal>
+                        <Transition
+                            as={Fragment}
+                            enter="transition ease-out duration-100"
+                            enterFrom="opacity-0 translate-y-1"
+                            enterTo="opacity-100 translate-y-0"
+                            leave="transition ease-in duration-75"
+                            leaveFrom="opacity-100 translate-y-0"
+                            leaveTo="opacity-0 translate-y-1"
+                        >
+                            <Popover.Panel
+                                className="hidden md:block z-[70]"
+                                style={panelFixedStyle()}
+                                onMouseEnter={() => clearTimeout(closeTimer.current)}
+                                onMouseLeave={() => scheduleClose(true)}
+                            >
+                                <div className="w-72 max-h-64 overflow-auto rounded-lg border bg-white shadow-lg p-2">
+                                    <PanelContent />
+                                </div>
+                            </Popover.Panel>
+                        </Transition>
+
+                        {/* Mobile: overlay + sheet */}
+                        <Transition
+                            as={Fragment}
+                            enter="transition ease-out duration-150"
+                            enterFrom="opacity-0"
+                            enterTo="opacity-100"
+                            leave="transition ease-in duration-100"
+                            leaveFrom="opacity-100"
+                            leaveTo="opacity-0"
+                        >
+                            <Popover.Overlay className="md:hidden fixed inset-0 bg-black/40 z-[69]" />
+                        </Transition>
+
+                        <Transition
+                            as={Fragment}
+                            enter="transition ease-out duration-200"
+                            enterFrom="translate-y-4 opacity-0"
+                            enterTo="translate-y-0 opacity-100"
+                            leave="transition ease-in duration-150"
+                            leaveFrom="translate-y-0 opacity-100"
+                            leaveTo="translate-y-4 opacity-0"
+                        >
+                            <Popover.Panel className="md:hidden fixed left-1/2 -translate-x-1/2 bottom-6 z-[70] w-[min(24rem,calc(100vw-2rem))] max-h-[60vh] overflow-auto rounded-xl border bg-white shadow-2xl p-3">
+                                <div className="relative">
+                                    <Popover.Button className="absolute top-0 right-0 p-1 rounded hover:bg-gray-100" aria-label="Cerrar">
+                                        ✕
+                                    </Popover.Button>
+                                    <PanelContent />
+                                </div>
+                            </Popover.Panel>
+                        </Transition>
+                    </Portal>
+                </>
+            )}
+        </Popover>
+    );
+}
+
+/** Helper para extraer nombres únicos de métodos de pago de una venta */
+function paymentNames(sale) {
+    const set = new Set();
+    if (Array.isArray(sale?.payments)) {
+        sale.payments.forEach(p => {
+            const n =
+                p?.payment_method?.name ??
+                p?.method?.name ??
+                p?.method_name ??
+                p?.name ??
+                null;
+            if (n) set.add(n);
+        });
+    }
+    if (!set.size && sale?.payment_methods_text) {
+        String(sale.payment_methods_text)
+            .split(',')
+            .map(x => x.trim())
+            .filter(Boolean)
+            .forEach(n => set.add(n));
+    }
+    return Array.from(set);
+}
 
 export default function Index() {
     const {
@@ -29,13 +236,13 @@ export default function Index() {
 
     // ===== Carrito =====
     const [openCart, setOpenCart] = useState(false);
-    const [cart, setCart] = useState({});   // { [inventoryId]: qty | '' }
-    const [linePrice, setLinePrice] = useState({});   // total por ítem (override)
+    const [cart, setCart] = useState({});                 // { [inventoryId]: qty | '' }
+    const [linePrice, setLinePrice] = useState({});       // total por ítem (override)
     const [cartItems, setCartItems] = useState([]);
     const [bulkFlow, setBulkFlow] = useState(false);
     const [submitting, setSubmitting] = useState(false);
 
-    // ===== Cantidades (paso 0.5) =====
+    // ===== Cantidades =====
     const STEP = 0.5;
     const clampFloat = (n, min, max) => Math.max(min, Math.min(max, n));
     const snapToStep = (n, step = STEP) => Math.round(n / step) * step;
@@ -58,7 +265,6 @@ export default function Index() {
         if (n === '') return;
         setCart(p => ({ ...p, [id]: clampFloat(n, 0, Number(max ?? 0)) }));
     };
-
     const commitQty = (id, max) => {
         setCart(prev => {
             const raw = prev[id];
@@ -69,7 +275,6 @@ export default function Index() {
             return { ...prev, [id]: n };
         });
     };
-
     function addQty(id, delta, max) {
         setCart(prev => {
             const cur = normalizeDecimal(prev[id] ?? 0) || 0;
@@ -97,7 +302,7 @@ export default function Index() {
         );
     }
 
-    // ===== Total carrito (sin delivery) =====
+    // ===== Total carrito =====
     const totalSum = useMemo(() => {
         return Object.entries(cart).reduce((acc, [id, qtyRaw]) => {
             const prod = items.find(x => x.id === Number(id));
@@ -106,8 +311,9 @@ export default function Index() {
             qty = clampFloat(snapToStep(qty), 0, Number(prod.quantity ?? 0));
             if (qty <= 0) return acc;
             const override = linePrice[id];
-            const lineTotal = override !== undefined && override !== '' ? Number(override)
-                : Number(prod.sale_price ?? 0) * qty;
+            const lineTotal =
+                override !== undefined && override !== '' ? Number(override)
+                    : Number(prod.sale_price ?? 0) * qty;
             return acc + (Number.isFinite(lineTotal) ? lineTotal : 0);
         }, 0);
     }, [cart, linePrice, items]);
@@ -137,9 +343,7 @@ export default function Index() {
         if (bulkFlow) {
             setNewDue(Math.max(0, Number(totalSum) - Number(pd.pay || 0)));
         } else if (selected) {
-            const bal = Number(
-                selected.balance ?? Math.max(0, (selected.total ?? 0) - (selected.paid ?? 0))
-            );
+            const bal = Number(selected.balance ?? Math.max(0, (selected.total ?? 0) - (selected.paid ?? 0)));
             setNewDue(Math.max(0, bal - Number(pd.pay || 0)));
         } else setNewDue(0);
     }, [pd.pay, totalSum, bulkFlow, selected]);
@@ -230,7 +434,6 @@ export default function Index() {
                 items: cartItems,
                 payments: [{ payment_method_id: methodId, amount, reference: reference || null }],
             };
-            // Delivery no se suma aquí; backend decide si aplica
             if (hasDelivery) { payload.delivery_id = Number(deliveryId); payload.km = kmVal; }
 
             router.post(route('sales.store'), payload, {
@@ -289,43 +492,67 @@ export default function Index() {
                     </button>
                 </div>
 
-                {/* Cards mobile */}
+                {/* Mobile cards */}
                 <div className="md:hidden space-y-3">
-                    {rows.map(s => (
-                        <div key={s.id} className="bg-white rounded-lg shadow p-4">
-                            <div className="flex items-center justify-between">
-                                <div className="font-semibold">#{s.id}</div>
-                                <span className={`text-xs px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
-                                        : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
-                                            : s.status === 'anulada' ? 'bg-gray-200 text-gray-700'
-                                                : 'bg-red-100 text-red-800'}`}>{s.status}</span>
+                    {rows.map(s => {
+                        const methods = paymentNames(s);
+                        return (
+                            <div key={s.id} className="bg-white rounded-lg shadow p-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="font-semibold">#{s.id}</div>
+                                    <span className={`text-xs px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
+                                            : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
+                                                : s.status === 'anulada' ? 'bg-gray-200 text-gray-700'
+                                                    : 'bg-red-100 text-red-800'}`}>{s.status}</span>
+                                </div>
+
+                                <div className="mt-2 text-sm text-gray-600">
+                                    {s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : ''}
+                                </div>
+
+                                <div className="mt-3 grid grid-cols-1 gap-2 text-sm">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-gray-500">Ítems:</span>
+                                        <span>{s.items_count ?? s.items?.length ?? '-'}</span>
+                                        <ItemsPopover sale={s} />
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-gray-500">Formas de pago:</span>
+                                        {methods.length ? (
+                                            <div className="flex flex-wrap gap-1">
+                                                {methods.map(n => (
+                                                    <span key={n} className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700">
+                                                        {n}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        ) : <span className="text-gray-400">—</span>}
+                                    </div>
+
+                                    <div><span className="text-gray-500">Total:</span> ${Number(s.total).toLocaleString('es-CO')}</div>
+                                    <div><span className="text-gray-500">Pagado:</span> ${Number(s.paid).toLocaleString('es-CO')}</div>
+                                    <div><span className="text-gray-500">Saldo:</span> ${Number(s.balance).toLocaleString('es-CO')}</div>
+                                </div>
+
+                                <div className="mt-3 flex gap-3">
+                                    {s.status !== 'pagado' && s.status !== 'anulada' && (
+                                        <button onClick={() => beginPay(s)} className="flex-1 text-yellow-700 border border-yellow-300 rounded-md py-2">
+                                            Saldar Deuda
+                                        </button>
+                                    )}
+                                    <Link href={route('sales.show', s.id)} className="flex-1 text-center text-indigo-700 border border-indigo-300 rounded-md py-2">
+                                        Ver
+                                    </Link>
+                                    {isAdmin && s.status !== 'anulada' && (
+                                        <button onClick={() => cancelSale(s)} className="flex-1 text-white bg-red-600 hover:bg-red-700 rounded-md py-2 disabled:opacity-50" disabled={submitting}>
+                                            Anular
+                                        </button>
+                                    )}
+                                </div>
                             </div>
-                            <div className="mt-2 text-sm text-gray-600">
-                                {s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : ''}
-                            </div>
-                            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                                <div><span className="text-gray-500">Ítems:</span> {s.items_count ?? s.items?.length ?? '-'}</div>
-                                <div><span className="text-gray-500">Total:</span> ${Number(s.total).toLocaleString('es-CO')}</div>
-                                <div><span className="text-gray-500">Pagado:</span> ${Number(s.paid).toLocaleString('es-CO')}</div>
-                                <div><span className="text-gray-500">Saldo:</span> ${Number(s.balance).toLocaleString('es-CO')}</div>
-                            </div>
-                            <div className="mt-3 flex gap-3">
-                                {s.status !== 'pagado' && s.status !== 'anulada' && (
-                                    <button onClick={() => beginPay(s)} className="flex-1 text-yellow-700 border border-yellow-300 rounded-md py-2">
-                                        Saldar Deuda
-                                    </button>
-                                )}
-                                <Link href={route('sales.show', s.id)} className="flex-1 text-center text-indigo-700 border border-indigo-300 rounded-md py-2">
-                                    Ver
-                                </Link>
-                                {isAdmin && s.status !== 'anulada' && (
-                                    <button onClick={() => cancelSale(s)} className="flex-1 text-white bg-red-600 hover:bg-red-700 rounded-md py-2 disabled:opacity-50" disabled={submitting}>
-                                        Anular
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                     {rows.length === 0 && <div className="text-sm text-gray-500 text-center">Sin registros.</div>}
                 </div>
 
@@ -334,40 +561,66 @@ export default function Index() {
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50 sticky top-0 z-10">
                             <tr>
-                                {['#', 'Fecha', 'Ítems', 'Total', 'Pagado', 'Saldo', 'Estado', 'Acciones'].map(h => (
+                                {['#', 'Fecha', 'Ítems', 'Formas de pago', 'Total', 'Pagado', 'Saldo', 'Estado', 'Acciones'].map(h => (
                                     <th key={h} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {rows.map(s => (
-                                <tr key={s.id}>
-                                    <td className="px-6 py-4 whitespace-nowrap">#{s.id}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap">{s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : ''}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap">{s.items_count ?? s.items?.length ?? '-'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap">${Number(s.total).toLocaleString('es-CO')}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap">${Number(s.paid).toLocaleString('es-CO')}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap">${Number(s.balance).toLocaleString('es-CO')}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className={`px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
-                                                : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
-                                                    : s.status === 'anulada' ? 'bg-gray-200 text-gray-700'
-                                                        : 'bg-red-100 text-red-800'}`}>{s.status}</span>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap space-x-3">
-                                        {s.status !== 'pagado' && s.status !== 'anulada' && (
-                                            <button onClick={() => beginPay(s)} className="text-yellow-600 hover:text-yellow-900">Saldar Deuda</button>
-                                        )}
-                                        <Link href={route('sales.show', s.id)} className="text-indigo-600 hover:text-indigo-900">Ver</Link>
-                                        {isAdmin && s.status !== 'anulada' && (
-                                            <button onClick={() => cancelSale(s)} className="text-red-600 hover:text-red-900 disabled:opacity-50" disabled={submitting}>
-                                                Anular
-                                            </button>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                            {rows.length === 0 && <tr><td className="px-6 py-4 text-sm text-gray-500" colSpan={8}>Sin registros.</td></tr>}
+                            {rows.map(s => {
+                                const methods = paymentNames(s);
+                                return (
+                                    <tr key={s.id}>
+                                        <td className="px-6 py-4 whitespace-nowrap">#{s.id}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap">{s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : ''}</td>
+
+                                        {/* Ítems + Popover */}
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="inline-flex items-center gap-2">
+                                                <span>{s.items_count ?? s.items?.length ?? '-'}</span>
+                                                <ItemsPopover sale={s} />
+                                            </div>
+                                        </td>
+
+                                        {/* Formas de pago */}
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            {methods.length ? (
+                                                <div className="flex flex-wrap gap-1 max-w-[22rem]">
+                                                    {methods.map(n => (
+                                                        <span key={n} className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700">
+                                                            {n}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <span className="text-xs text-gray-400">—</span>
+                                            )}
+                                        </td>
+
+                                        <td className="px-6 py-4 whitespace-nowrap">${Number(s.total).toLocaleString('es-CO')}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap">${Number(s.paid).toLocaleString('es-CO')}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap">${Number(s.balance).toLocaleString('es-CO')}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <span className={`px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
+                                                    : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
+                                                        : s.status === 'anulada' ? 'bg-gray-200 text-gray-700'
+                                                            : 'bg-red-100 text-red-800'}`}>{s.status}</span>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap space-x-3">
+                                            {s.status !== 'pagado' && s.status !== 'anulada' && (
+                                                <button onClick={() => beginPay(s)} className="text-yellow-600 hover:text-yellow-900">Saldar Deuda</button>
+                                            )}
+                                            <Link href={route('sales.show', s.id)} className="text-indigo-600 hover:text-indigo-900">Ver</Link>
+                                            {isAdmin && s.status !== 'anulada' && (
+                                                <button onClick={() => cancelSale(s)} className="text-red-600 hover:text-red-900 disabled:opacity-50" disabled={submitting}>
+                                                    Anular
+                                                </button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                            {rows.length === 0 && <tr><td className="px-6 py-4 text-sm text-gray-500" colSpan={9}>Sin registros.</td></tr>}
                         </tbody>
                     </table>
                 </div>
@@ -399,13 +652,11 @@ export default function Index() {
               rounded-none md:rounded-2xl
             "
                     >
-                        {/* Header fijo */}
                         <div className="p-4 md:p-5 border-b sticky top-0 bg-white z-10 flex items-center justify-between">
                             <Dialog.Title className="text-base md:text-lg font-bold">Carrito</Dialog.Title>
                             <button onClick={() => setOpenCart(false)} className="text-gray-500 hover:text-gray-700">✕</button>
                         </div>
 
-                        {/* Body: scroll SIEMPRE en mobile (flex-1) y en desktop máx 65vh */}
                         <div className="p-4 md:p-5 flex-1 overflow-y-auto md:max-h-[65vh]">
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                                 {items.map(prod => (
@@ -460,7 +711,6 @@ export default function Index() {
                             </div>
                         </div>
 
-                        {/* Footer fijo */}
                         <div className="p-4 md:p-5 border-t sticky bottom-0 bg-white z-10">
                             <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 justify-between">
                                 <div className="text-base md:text-lg font-semibold">
@@ -497,7 +747,6 @@ export default function Index() {
                             <button onClick={() => setOpenPay(false)} type="button" className="text-gray-500 hover:text-gray-700">✕</button>
                         </div>
 
-                        {/* Body con scroll siempre en mobile */}
                         <div className="p-4 md:p-5 flex-1 overflow-y-auto space-y-4">
                             {bulkFlow && (
                                 <>
