@@ -152,7 +152,7 @@ export default function Dashboard() {
                   <CartesianGrid stroke="currentColor" strokeOpacity={0.15} />
                   <XAxis dataKey="name" tick={{ fill: "currentColor", fontSize: 12 }} interval={0} tickMargin={8} />
                   <YAxis tick={{ fill: "currentColor", fontSize: 12 }} />
-                  <Tooltip formatter={(v, name) => name === "qty" ? [v, "Unidades"] : [`$ ${fmtMoney(v)}`, "Monto"]} />
+                  <Tooltip formatter={(v, name) => name === "qty" ? [v, "Unidades"] : [`${fmtMoney(v)}`, "Monto"]} />
                   <Legend wrapperStyle={{ color: "inherit" }} />
                   {/* Forzar verde con fill/stroke y Cell por barra */}
                   <Bar
