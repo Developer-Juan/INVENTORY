@@ -48,6 +48,14 @@ export default function Create() {
     };
     const snap05 = (n) => Math.round(n / STEP) * STEP;
 
+    // Mostrar fracciones con coma para totales (historial/preview)
+    const fmtTotal = (n) => {
+        const v = Number(n ?? 0);
+        return Number.isInteger(v)
+            ? v.toLocaleString("es-CO")
+            : v.toLocaleString("es-CO", { minimumFractionDigits: 1, maximumFractionDigits: 3 });
+    };
+
     // -------- Estado línea rápida + buscador --------
     const [query, setQuery] = useState("");
     const [suggestions, setSuggestions] = useState([]);
@@ -56,14 +64,14 @@ export default function Create() {
         name: "",
         unit: "",
         quantity: 1,
-        stock_origin: undefined, // <- para mostrar bajo "Cantidad"
+        stock_origin: undefined, // para mostrar bajo "Cantidad"
     });
 
     // -------- Preview (modal ojito) --------
     const [preview, setPreview] = useState({
         open: false,
         loading: false,
-        header: null, // {id, from, to, created_at, ...}
+        header: null, // {id, from, to, created_at, qty_sum, ...}
         items: [],
         error: null,
     });
@@ -83,10 +91,7 @@ export default function Create() {
                     ? route("transfers.items", t.id)
                     : `/transfers/${t.id}/items`;
             const res = await fetch(url, {
-                headers: {
-                    "X-Requested-With": "XMLHttpRequest",
-                    Accept: "application/json",
-                },
+                headers: { "X-Requested-With": "XMLHttpRequest", Accept: "application/json" },
                 credentials: "same-origin",
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -136,19 +141,16 @@ export default function Create() {
                     typeof route === "function"
                         ? route("inventories.search")
                         : "/inventories/search";
+
                 // ORIGEN: admin -> from_location_id; no admin -> principalId
-                const originId = isAdmin
-                    ? form.data.from_location_id || ""
-                    : principalId || "";
+                const originId = isAdmin ? (form.data.from_location_id || "") : (principalId || "");
                 const params = new URLSearchParams({
                     term: query.trim(),
-                    location_id: originId,
+                    location_id: originId, // el backend usará este id para calcular stock_origin
                 });
+
                 const res = await fetch(`${base}?${params.toString()}`, {
-                    headers: {
-                        "X-Requested-With": "XMLHttpRequest",
-                        Accept: "application/json",
-                    },
+                    headers: { "X-Requested-With": "XMLHttpRequest", Accept: "application/json" },
                     credentials: "same-origin",
                 });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -170,8 +172,7 @@ export default function Create() {
             name: it.name,
             unit: it.unit || "",
             quantity: isGram(it.unit) ? STEP : 1,
-            stock_origin:
-                typeof it.stock_origin === "number" ? it.stock_origin : 0,
+            stock_origin: typeof it.stock_origin === "number" ? it.stock_origin : (typeof it.stock === "number" ? it.stock : 0),
         });
         setQuery(it.name);
         setSuggestions([]);
@@ -190,15 +191,10 @@ export default function Create() {
             qty = Math.max(1, Math.floor(qty));
         }
 
-        const idx = form.data.items.findIndex(
-            (l) => Number(l.inventory_id) === id
-        );
+        const idx = form.data.items.findIndex((l) => Number(l.inventory_id) === id);
         if (idx >= 0) {
             const copy = [...form.data.items];
-            copy[idx] = {
-                ...copy[idx],
-                quantity: Number(copy[idx].quantity) + qty,
-            };
+            copy[idx] = { ...copy[idx], quantity: Number(copy[idx].quantity) + qty };
             form.setData("items", copy);
         } else {
             form.setData("items", [
@@ -208,13 +204,12 @@ export default function Create() {
                     quantity: qty,
                     _name: row.name,
                     _unit: row.unit,
-                    _stock_origin:
-                        typeof row.stock_origin === "number" ? row.stock_origin : 0,
+                    _stock_origin: typeof row.stock_origin === "number" ? row.stock_origin : 0,
                 },
             ]);
         }
 
-        // Reseteamos fila rápida (no afecta al dropdown)
+        // Reset de la fila rápida
         setRow({
             inventory_id: "",
             name: "",
@@ -322,17 +317,12 @@ export default function Create() {
                         {isAdmin ? (
                             <>
                                 <div className="sm:col-span-1">
-                                    <label className="block text-sm font-medium text-gray-700">
-                                        Desde (origen)
-                                    </label>
+                                    <label className="block text-sm font-medium text-gray-700">Desde (origen)</label>
                                     <select
                                         className="mt-1 border rounded-lg px-3 py-2 w-full"
                                         value={form.data.from_location_id ?? ""}
                                         onChange={(e) =>
-                                            form.setData(
-                                                "from_location_id",
-                                                e.target.value ? Number(e.target.value) : ""
-                                            )
+                                            form.setData("from_location_id", e.target.value ? Number(e.target.value) : "")
                                         }
                                     >
                                         <option value="">— Selecciona —</option>
@@ -343,24 +333,17 @@ export default function Create() {
                                         ))}
                                     </select>
                                     {form.errors.from_location_id && (
-                                        <p className="text-red-600 text-xs mt-1">
-                                            {form.errors.from_location_id}
-                                        </p>
+                                        <p className="text-red-600 text-xs mt-1">{form.errors.from_location_id}</p>
                                     )}
                                 </div>
 
                                 <div className="sm:col-span-1">
-                                    <label className="block text-sm font-medium text-gray-700">
-                                        Hacia (destino)
-                                    </label>
+                                    <label className="block text-sm font-medium text-gray-700">Hacia (destino)</label>
                                     <select
                                         className="mt-1 border rounded-lg px-3 py-2 w-full"
                                         value={form.data.to_location_id ?? ""}
                                         onChange={(e) =>
-                                            form.setData(
-                                                "to_location_id",
-                                                e.target.value ? Number(e.target.value) : ""
-                                            )
+                                            form.setData("to_location_id", e.target.value ? Number(e.target.value) : "")
                                         }
                                     >
                                         <option value="">— Selecciona —</option>
@@ -371,14 +354,11 @@ export default function Create() {
                                         ))}
                                     </select>
                                     {form.errors.to_location_id && (
-                                        <p className="text-red-600 text-xs mt-1">
-                                            {form.errors.to_location_id}
-                                        </p>
+                                        <p className="text-red-600 text-xs mt-1">{form.errors.to_location_id}</p>
                                     )}
                                     {form.data.from_location_id &&
                                         form.data.to_location_id &&
-                                        form.data.from_location_id ===
-                                        form.data.to_location_id && (
+                                        form.data.from_location_id === form.data.to_location_id && (
                                             <p className="text-red-600 text-xs mt-1">
                                                 El origen y el destino no pueden ser iguales
                                             </p>
@@ -387,18 +367,14 @@ export default function Create() {
                             </>
                         ) : (
                             <div className="sm:col-span-1">
-                                <label className="block text-sm font-medium text-gray-700">
-                                    Dealer destino
-                                </label>
+                                <label className="block text-sm font-medium text-gray-700">Dealer destino</label>
                                 <select
                                     className="mt-1 border rounded-lg px-3 py-2 w-full"
                                     value={form.data.dealer_location_id}
                                     onChange={(e) => {
                                         const locId = e.target.value ? Number(e.target.value) : "";
                                         form.setData("dealer_location_id", locId);
-                                        const d = dealers.find(
-                                            (x) => Number(x.id) === Number(locId)
-                                        );
+                                        const d = dealers.find((x) => Number(x.id) === Number(locId));
                                         form.setData("dealer_user_id", d?.user_id ?? "");
                                     }}
                                 >
@@ -410,28 +386,20 @@ export default function Create() {
                                     ))}
                                 </select>
                                 {form.errors.dealer_location_id && (
-                                    <p className="text-red-600 text-xs mt-1">
-                                        {form.errors.dealer_location_id}
-                                    </p>
+                                    <p className="text-red-600 text-xs mt-1">{form.errors.dealer_location_id}</p>
                                 )}
                             </div>
                         )}
 
                         <div className={isAdmin ? "sm:col-span-1" : "sm:col-span-2"}>
-                            <label className="block text-sm font-medium text-gray-700">
-                                Nota (opcional)
-                            </label>
+                            <label className="block text-sm font-medium text-gray-700">Nota (opcional)</label>
                             <input
                                 className="mt-1 border rounded-lg px-3 py-2 w-full"
                                 value={form.data.note}
                                 onChange={(e) => form.setData("note", e.target.value)}
                                 placeholder="Motivo, referencia, etc."
                             />
-                            {form.errors.note && (
-                                <p className="text-red-600 text-xs mt-1">
-                                    {form.errors.note}
-                                </p>
-                            )}
+                            {form.errors.note && <p className="text-red-600 text-xs mt-1">{form.errors.note}</p>}
                         </div>
                     </div>
 
@@ -439,9 +407,7 @@ export default function Create() {
                     <div className="bg-white rounded-xl shadow p-4 space-y-3">
                         <div className="grid gap-3 sm:grid-cols-3">
                             <div className="sm:col-span-2 relative">
-                                <label className="block text-sm font-medium text-gray-700">
-                                    Buscar producto
-                                </label>
+                                <label className="block text-sm font-medium text-gray-700">Buscar producto</label>
                                 <input
                                     className="mt-1 border rounded-lg px-3 py-2 w-full"
                                     placeholder="Escribe al menos 2 letras…"
@@ -460,10 +426,10 @@ export default function Create() {
                                             >
                                                 <div className="font-medium">{s.name}</div>
                                                 <div className="text-xs text-gray-500">
-                                                    ID #{s.id} · {String(s.unit || "").toUpperCase()} ·
-                                                    {" "}
-                                                    stock origen:{" "}
-                                                    {Number(s.stock_origin ?? 0).toLocaleString("es-CO")}
+                                                    ID #{s.id} · {String(s.unit || "").toUpperCase()} · stock origen:{" "}
+                                                    {Number(
+                                                        typeof s.stock_origin === "number" ? s.stock_origin : (s.stock ?? 0)
+                                                    ).toLocaleString("es-CO")}
                                                 </div>
                                             </button>
                                         ))}
@@ -472,9 +438,7 @@ export default function Create() {
                             </div>
 
                             <div className="sm:col-span-1">
-                                <label className="block text-sm font-medium text-gray-700">
-                                    Cantidad
-                                </label>
+                                <label className="block text-sm font-medium text-gray-700">Cantidad</label>
                                 <div className="mt-1 flex gap-2">
                                     <input
                                         type="text"
@@ -482,9 +446,7 @@ export default function Create() {
                                         className="border rounded-lg px-3 py-2 w-28"
                                         placeholder={isGram(row.unit) ? "0.5" : "1"}
                                         value={row.quantity}
-                                        onChange={(e) =>
-                                            setRow((r) => ({ ...r, quantity: e.target.value }))
-                                        }
+                                        onChange={(e) => setRow((r) => ({ ...r, quantity: e.target.value }))}
                                         onBlur={() =>
                                             setRow((r) => {
                                                 let q = norm(r.quantity);
@@ -520,9 +482,7 @@ export default function Create() {
                                 {row.inventory_id && (
                                     <p className="text-xs text-gray-600 mt-1">
                                         Stock aprox en origen:{" "}
-                                        <b>
-                                            {Number(row.stock_origin ?? 0).toLocaleString("es-CO")}
-                                        </b>
+                                        <b>{Number(row.stock_origin ?? 0).toLocaleString("es-CO")}</b>
                                     </p>
                                 )}
                             </div>
@@ -530,8 +490,7 @@ export default function Create() {
 
                         {row.inventory_id && (
                             <p className="text-sm text-gray-600">
-                                Seleccionado: <b>{row.name}</b>{" "}
-                                {row.unit ? `(${row.unit.toUpperCase()})` : ""}
+                                Seleccionado: <b>{row.name}</b> {row.unit ? `(${row.unit.toUpperCase()})` : ""}
                             </p>
                         )}
                     </div>
@@ -544,16 +503,11 @@ export default function Create() {
                             </div>
                         )}
                         {form.data.items.map((l, i) => (
-                            <div
-                                key={`${l.inventory_id}-${i}`}
-                                className="rounded-xl border bg-white p-4"
-                            >
+                            <div key={`${l.inventory_id}-${i}`} className="rounded-xl border bg-white p-4">
                                 <div className="flex items-start justify-between gap-3">
                                     <div>
                                         <div className="font-semibold">#{l.inventory_id}</div>
-                                        {l._name && (
-                                            <div className="text-xs text-gray-500">{l._name}</div>
-                                        )}
+                                        {l._name && <div className="text-xs text-gray-500">{l._name}</div>}
                                     </div>
                                     <button
                                         type="button"
@@ -586,8 +540,7 @@ export default function Create() {
                                 </div>
                                 {typeof l._stock_origin === "number" && (
                                     <p className="text-[11px] text-gray-400 mt-1">
-                                        Stock origen al seleccionar:{" "}
-                                        {Number(l._stock_origin).toLocaleString("es-CO")}
+                                        Stock origen al seleccionar: {Number(l._stock_origin).toLocaleString("es-CO")}
                                     </p>
                                 )}
                             </div>
@@ -599,15 +552,9 @@ export default function Create() {
                         <table className="min-w-full divide-y divide-gray-200 text-sm">
                             <thead className="bg-gray-50 sticky top-0 z-10">
                                 <tr>
-                                    <th className="px-4 py-3 text-left font-medium text-gray-600">
-                                        Producto
-                                    </th>
-                                    <th className="px-4 py-3 text-left font-medium text-gray-600">
-                                        Unidad
-                                    </th>
-                                    <th className="px-4 py-3 text-left font-medium text-gray-600">
-                                        Cantidad
-                                    </th>
+                                    <th className="px-4 py-3 text-left font-medium text-gray-600">Producto</th>
+                                    <th className="px-4 py-3 text-left font-medium text-gray-600">Unidad</th>
+                                    <th className="px-4 py-3 text-left font-medium text-gray-600">Cantidad</th>
                                     <th className="px-4 py-3" />
                                 </tr>
                             </thead>
@@ -616,9 +563,7 @@ export default function Create() {
                                     <tr key={`${l.inventory_id}-${i}`}>
                                         <td className="px-4 py-2">
                                             <div className="font-medium">#{l.inventory_id}</div>
-                                            {l._name && (
-                                                <div className="text-xs text-gray-500">{l._name}</div>
-                                            )}
+                                            {l._name && <div className="text-xs text-gray-500">{l._name}</div>}
                                             {typeof l._stock_origin === "number" && (
                                                 <div className="text-[11px] text-gray-400 mt-0.5">
                                                     Stock origen al seleccionar:{" "}
@@ -731,9 +676,7 @@ export default function Create() {
                                         </svg>
                                     </button>
                                     <div className="text-xs text-gray-500">
-                                        {t.created_at
-                                            ? new Date(t.created_at).toLocaleString("es-CO")
-                                            : ""}
+                                        {t.created_at ? new Date(t.created_at).toLocaleString("es-CO") : ""}
                                     </div>
                                 </div>
                             </div>
@@ -752,7 +695,7 @@ export default function Create() {
                                 </div>
                                 <div>
                                     <p className="text-[11px] text-gray-500">Unidades</p>
-                                    <p>{Number(t.qty_sum ?? 0).toLocaleString("es-CO")}</p>
+                                    <p>{fmtTotal(t.qty_sum)}</p>
                                 </div>
                                 <div className="col-span-2">
                                     <p className="text-[11px] text-gray-500">Nota</p>
@@ -762,9 +705,7 @@ export default function Create() {
                             <div className="mt-2 flex items-center justify-between text-xs">
                                 <span>{t.creator?.name ?? "—"}</span>
                                 <span
-                                    className={`px-2 py-0.5 rounded-full ${t.status === "done"
-                                            ? "bg-green-100 text-green-800"
-                                            : "bg-gray-100 text-gray-700"
+                                    className={`px-2 py-0.5 rounded-full ${t.status === "done" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-700"
                                         }`}
                                 >
                                     {t.status}
@@ -796,28 +737,19 @@ export default function Create() {
                                 <tr key={t.id}>
                                     <td className="px-4 py-2">#{t.id}</td>
                                     <td className="px-4 py-2">
-                                        {t.created_at
-                                            ? new Date(t.created_at).toLocaleString("es-CO")
-                                            : ""}
+                                        {t.created_at ? new Date(t.created_at).toLocaleString("es-CO") : ""}
                                     </td>
                                     <td className="px-4 py-2">{t.from?.name ?? "—"}</td>
                                     <td className="px-4 py-2">{t.to?.name ?? "—"}</td>
                                     <td className="px-4 py-2">{t.lines_count ?? 0}</td>
-                                    <td className="px-4 py-2">
-                                        {Number(t.qty_sum ?? 0).toLocaleString("es-CO")}
-                                    </td>
-                                    <td
-                                        className="px-4 py-2 truncate max-w-[260px]"
-                                        title={t.note || ""}
-                                    >
+                                    <td className="px-4 py-2">{fmtTotal(t.qty_sum)}</td>
+                                    <td className="px-4 py-2 truncate max-w-[260px]" title={t.note || ""}>
                                         {t.note || "—"}
                                     </td>
                                     <td className="px-4 py-2">{t.creator?.name ?? "—"}</td>
                                     <td className="px-4 py-2">
                                         <span
-                                            className={`px-2 py-1 rounded-full ${t.status === "done"
-                                                    ? "bg-green-100 text-green-800"
-                                                    : "bg-gray-100 text-gray-700"
+                                            className={`px-2 py-1 rounded-full ${t.status === "done" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-700"
                                                 }`}
                                         >
                                             {t.status}
@@ -888,34 +820,21 @@ export default function Create() {
             {preview.open && (
                 <div className="fixed inset-0 z-40">
                     {/* backdrop */}
-                    <div
-                        className="absolute inset-0 bg-black/40"
-                        onClick={closePreview}
-                    />
+                    <div className="absolute inset-0 bg-black/40" onClick={closePreview} />
                     {/* modal */}
                     <div className="absolute inset-x-4 top-10 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[720px] bg-white rounded-2xl shadow-xl overflow-hidden z-50">
                         <div className="flex items-center justify-between px-4 py-3 border-b">
                             <div className="font-semibold">
                                 {preview.header ? (
                                     <>
-                                        Transferencia #{preview.header.id} · {preview.header.from} →{" "}
-                                        {preview.header.to}
+                                        Transferencia #{preview.header.id} · {preview.header.from} → {preview.header.to}
                                     </>
                                 ) : (
                                     "Transferencia"
                                 )}
                             </div>
-                            <button
-                                className="p-1.5 rounded hover:bg-gray-100"
-                                onClick={closePreview}
-                                aria-label="Cerrar"
-                            >
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    className="h-5 w-5"
-                                    viewBox="0 0 20 20"
-                                    fill="currentColor"
-                                >
+                            <button className="p-1.5 rounded hover:bg-gray-100" onClick={closePreview} aria-label="Cerrar">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                                     <path
                                         fillRule="evenodd"
                                         d="M10 8.586l4.95-4.95 1.414 1.414L11.414 10l4.95 4.95-1.414 1.414L10 11.414l-4.95 4.95-1.414-1.414L8.586 10l-4.95-4.95L5.05 3.636 10 8.586z"
@@ -926,36 +845,21 @@ export default function Create() {
                         </div>
 
                         <div className="p-4 max-h-[70vh] overflow-auto">
-                            {preview.loading && (
-                                <div className="text-sm text-gray-600">Cargando ítems…</div>
-                            )}
-                            {preview.error && (
-                                <div className="text-sm text-red-600">{preview.error}</div>
-                            )}
+                            {preview.loading && <div className="text-sm text-gray-600">Cargando ítems…</div>}
+                            {preview.error && <div className="text-sm text-red-600">{preview.error}</div>}
 
                             {!preview.loading && !preview.error && (
                                 <>
                                     <div className="text-xs text-gray-500 mb-3">
                                         {preview.header?.created_at
-                                            ? new Date(
-                                                preview.header.created_at
-                                            ).toLocaleString("es-CO")
+                                            ? new Date(preview.header.created_at).toLocaleString("es-CO")
                                             : ""}{" "}
-                                        · Ítems: <b>{preview.header?.lines_count ?? 0}</b> ·
-                                        {" "}
-                                        Unidades:{" "}
-                                        <b>
-                                            {Number(preview.header?.qty_sum ?? 0).toLocaleString(
-                                                "es-CO"
-                                            )}
-                                        </b>
+                                        · Ítems: <b>{preview.header?.lines_count ?? 0}</b> ·{" "}
+                                        Unidades: <b>{fmtTotal(preview.header?.qty_sum)}</b>
                                         {preview.header?.note ? (
                                             <>
                                                 {" "}
-                                                · Nota:{" "}
-                                                <span title={preview.header.note}>
-                                                    {preview.header.note}
-                                                </span>
+                                                · Nota: <span title={preview.header.note}>{preview.header.note}</span>
                                             </>
                                         ) : null}
                                     </div>
@@ -974,23 +878,15 @@ export default function Create() {
                                                     <tr key={`${it.inventory_id}-${i}`}>
                                                         <td className="px-3 py-2">
                                                             <div className="font-medium">{it.name}</div>
-                                                            <div className="text-xs text-gray-500">
-                                                                #{it.inventory_id}
-                                                            </div>
+                                                            <div className="text-xs text-gray-500">#{it.inventory_id}</div>
                                                         </td>
-                                                        <td className="px-3 py-2 uppercase">
-                                                            {it.unit || "—"}
-                                                        </td>
-                                                        <td className="px-3 py-2">
-                                                            {fmtQty(it.quantity, it.unit)} {it.unit}
-                                                        </td>
+                                                        <td className="px-3 py-2 uppercase">{it.unit || "—"}</td>
+                                                        <td className="px-3 py-2">{fmtQty(it.quantity, it.unit)} {it.unit}</td>
                                                     </tr>
                                                 ))}
                                                 {preview.items.length === 0 && (
                                                     <tr>
-                                                        <td className="px-3 py-6 text-gray-500" colSpan={3}>
-                                                            Sin ítems.
-                                                        </td>
+                                                        <td className="px-3 py-6 text-gray-500" colSpan={3}>Sin ítems.</td>
                                                     </tr>
                                                 )}
                                             </tbody>
@@ -1001,10 +897,7 @@ export default function Create() {
                         </div>
 
                         <div className="px-4 py-3 border-t flex justify-end">
-                            <button
-                                onClick={closePreview}
-                                className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200"
-                            >
+                            <button onClick={closePreview} className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">
                                 Cerrar
                             </button>
                         </div>
