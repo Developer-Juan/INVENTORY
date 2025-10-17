@@ -179,37 +179,63 @@ class InventoryController extends Controller
             return response()->json([]);
         }
 
-        // ¿Desde qué ubicación quieres ver stock?
-        // por defecto: la del usuario; si no tiene, Principal.
-        // puedes forzar principal con ?scope=principal
-        $scope = $r->query('scope');
-        $locationId = match ($scope) {
-            'principal' => Location::where('type', 'principal')->value('id'),
-            'user' => Location::where('user_id', auth()->id())->value('id'),
-            default => Location::where('user_id', auth()->id())->value('id')
-            ?? Location::where('type', 'principal')->value('id'),
+        // --- Origen para calcular stock ---
+        // 1) Si viene ?location_id desde el front, úsalo.
+        // 2) Si no, respalda con ?scope=(principal|user) o por defecto: loc del usuario -> principal.
+        $locationIdParam = (int) $r->query('location_id', 0);
+
+        // Resuelvo ids comunes una sola vez
+        $principalId = (int) Location::whereIn('type', ['principal', 'main'])->value('id');
+        $userLocId = (int) Location::where('user_id', auth()->id())->value('id');
+
+        $scope = $r->query('scope'); // opcional
+        $scopedId = match ($scope) {
+            'principal' => $principalId,
+            'user' => $userLocId,
+            default => $userLocId ?: $principalId,
         };
 
+        $originId = $locationIdParam > 0 ? $locationIdParam : $scopedId;
+
+        // Seguridad: si no hay origen resolvible, devolvemos vacío
+        if (!$originId) {
+            return response()->json([]);
+        }
+
+        // Límite opcional
+        $limit = max(1, (int) $r->query('limit', 20));
+
         $rows = Inventory::query()
-            ->leftJoin('inventory_stocks as s', function ($j) use ($locationId) {
+            ->leftJoin('inventory_stocks as s', function ($j) use ($originId) {
                 $j->on('s.inventory_id', '=', 'inventories.id')
-                    ->where('s.location_id', $locationId);
+                    ->where('s.location_id', $originId);
             })
             ->where(function ($q) use ($term) {
-                $q->where('inventories.name', 'like', "%{$term}%")
-                    ->orWhere('inventories.id', $term);
+                $q->where('inventories.name', 'like', "%{$term}%");
+                // Si el término es numérico, también permite buscar por ID exacto
+                if (ctype_digit($term)) {
+                    $q->orWhere('inventories.id', (int) $term);
+                }
             })
             ->orderBy('inventories.name')
-            ->limit(20)
+            ->limit($limit)
             ->get([
                 'inventories.id',
                 'inventories.name',
                 'inventories.unit',
                 'inventories.sale_price',
-                DB::raw('COALESCE(s.on_hand - s.reserved, 0) as stock'),
-            ]);
+                // Stock en el ORIGEN solicitado
+                DB::raw('COALESCE(s.on_hand - s.reserved, 0) as stock_origin'),
+            ])
+            // compat: agrega "stock" con el mismo valor de stock_origin
+            ->map(function ($row) {
+                $row->stock = $row->stock_origin;
+                return $row;
+            })
+            ->values();
 
         return response()->json($rows);
     }
+
 
 }

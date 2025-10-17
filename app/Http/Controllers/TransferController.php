@@ -16,8 +16,14 @@ class TransferController extends Controller
 {
     public function create()
     {
-        $dealers = Location::query()
-            ->whereIn('type', ['dealer', 'secondary', 'dealer_secondary']) // <-- ajusta tus valores reales
+        $user = auth()->user();
+        $isAdmin = method_exists($user, 'hasRole') ? $user->hasRole('admin') || $user->hasRole('super-admin') : false;
+
+        $principalId = Location::whereIn('type', ['principal', 'main'])->value('id');
+
+        // Todas las que sirven para transferencias (principal + dealers/secundarias)
+        $locations = Location::query()
+            ->whereIn('type', ['principal', 'main', 'dealer', 'secondary', 'dealer_secondary'])
             ->with('user:id,name')
             ->get(['id', 'name', 'user_id', 'type']);
 
@@ -29,7 +35,9 @@ class TransferController extends Controller
             ->latest()->paginate(10)->withQueryString();
 
         return Inertia::render('Transfers/Create', [
-            'dealers' => $dealers,
+            'isAdmin' => $isAdmin,
+            'principalId' => (int) $principalId,
+            'locations' => $locations,
             'history' => $history,
         ]);
     }
@@ -38,22 +46,42 @@ class TransferController extends Controller
     // Ejecuta transferencia: principal -> dealer
     public function store(Request $r)
     {
-        $data = $r->validate([
-            'dealer_location_id' => ['required', 'exists:locations,id'],
+        $user = auth()->user();
+        $isAdmin = method_exists($user, 'hasRole') ? $user->hasRole('admin') || $user->hasRole('super-admin') : false;
+
+        $baseRules = [
             'items' => ['required', 'array', 'min:1'],
             'items.*.inventory_id' => ['required', 'exists:inventories,id'],
-            'items.*.quantity' => ['required', 'integer', 'min:1'],
+            'items.*.quantity' => ['required', 'numeric', 'min:0.5'], // admite 0.5 si usas gramos
             'note' => ['nullable', 'string', 'max:200'],
-        ]);
+        ];
 
-        $fromId = (int) Location::where('type', 'principal')->value('id');
-        if (!$fromId)
-            return back()->with('error', 'No existe ubicación principal');
+        if ($isAdmin && $r->filled('from_location_id') && $r->filled('to_location_id')) {
+            $data = $r->validate($baseRules + [
+                'from_location_id' => ['required', 'exists:locations,id'],
+                'to_location_id' => ['required', 'exists:locations,id', 'different:from_location_id'],
+            ]);
 
-        $toId = (int) $data['dealer_location_id'];
+            $fromId = (int) $data['from_location_id'];
+            $toId = (int) $data['to_location_id'];
+        } else {
+            // Flujo legacy: principal -> dealer
+            $data = $r->validate($baseRules + [
+                'dealer_location_id' => ['required', 'exists:locations,id'],
+            ]);
+
+            $fromId = (int) Location::whereIn('type', ['principal', 'main'])->value('id');
+            if (!$fromId)
+                return back()->with('error', 'No existe ubicación principal');
+
+            $toId = (int) $data['dealer_location_id'];
+
+            if ($fromId === $toId) {
+                return back()->with('error', 'El origen y el destino no pueden ser iguales');
+            }
+        }
 
         DB::transaction(function () use ($data, $fromId, $toId) {
-
             $transfer = Transfer::create([
                 'from_location_id' => $fromId,
                 'to_location_id' => $toId,
@@ -64,7 +92,8 @@ class TransferController extends Controller
 
             foreach ($data['items'] as $line) {
                 $invId = (int) $line['inventory_id'];
-                $qty = (int) $line['quantity'];
+                // soporta 0.5 en gramos; para enteros, ya normalizas en frontend
+                $qty = (float) $line['quantity'];
 
                 // Bloquea filas de stock
                 $src = InventoryStock::where([
@@ -73,7 +102,7 @@ class TransferController extends Controller
                 ])->lockForUpdate()->first();
 
                 if (!$src || $src->on_hand < $qty) {
-                    throw new \RuntimeException("Stock insuficiente en Principal para inventario #$invId");
+                    throw new \RuntimeException("Stock insuficiente en origen para inventario #$invId");
                 }
 
                 $dst = InventoryStock::where([
@@ -95,7 +124,7 @@ class TransferController extends Controller
                 $src->decrement('on_hand', $qty);
                 $dst->increment('on_hand', $qty);
 
-                // Movimientos (auditoría)
+                // Movimientos
                 InventoryMove::create([
                     'inventory_id' => $invId,
                     'location_id' => $fromId,
@@ -113,7 +142,6 @@ class TransferController extends Controller
                     'created_by' => auth()->id(),
                 ]);
 
-                // Detalle de la transferencia
                 TransferItem::create([
                     'transfer_id' => $transfer->id,
                     'inventory_id' => $invId,
@@ -122,8 +150,9 @@ class TransferController extends Controller
             }
         });
 
-        return redirect()->route('stock.index')->with('success', 'Transferencia realizada');
+        return redirect()->route('transfers.create')->with('success', 'Transferencia realizada');
     }
+
 
     public function lines(Transfer $transfer)
     {
