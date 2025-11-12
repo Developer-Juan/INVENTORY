@@ -8,38 +8,131 @@ use App\Models\Location;
 use App\Models\Transfer;
 use App\Models\TransferItem;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class TransferController extends Controller
 {
-    public function create()
+    public function create(Request $request)
     {
         $user = auth()->user();
-        $isAdmin = method_exists($user, 'hasRole') ? $user->hasRole('admin') || $user->hasRole('super-admin') : false;
+        $isAdmin = method_exists($user, 'hasRole')
+            ? $user->hasRole('admin') || $user->hasRole('super-admin')
+            : false;
 
         $principalId = Location::whereIn('type', ['principal', 'main'])->value('id');
 
-        // Todas las que sirven para transferencias (principal + dealers/secundarias)
+        // ubicaciones válidas para transfer
         $locations = Location::query()
             ->whereIn('type', ['principal', 'main', 'dealer', 'secondary', 'dealer_secondary'])
             ->with('user:id,name')
             ->get(['id', 'name', 'user_id', 'type']);
 
-        $history = Transfer::query()
-            ->select('id', 'from_location_id', 'to_location_id', 'created_by', 'note', 'status', 'created_at')
-            ->with(['from:id,name', 'to:id,name', 'creator:id,name'])
-            ->withCount(['items as lines_count'])
-            ->withSum('items as qty_sum', 'quantity')
-            ->latest()->paginate(10)->withQueryString();
+        // -------- filtros del front --------
+        $dealerId = $request->query('dealer_id');   // location destino
+        $fromDateRaw = $request->query('from_date');   // "2025-10-16" o "16/10/2025"
+        $toDateRaw = $request->query('to_date');     // "2025-10-17" o "17/10/2025"
+
+        // normalizamos a formato 'YYYY-MM-DD' (solo día)
+        $fromDay = self::normalizeDay($fromDateRaw); // ej "2025-10-16" o null
+        $toDay = self::normalizeDay($toDateRaw);   // ej "2025-10-17" o null
+
+        // dealers para el select de filtro
+        $dealerLocations = Location::query()
+            ->whereIn('type', ['dealer', 'secondary', 'dealer_secondary'])
+            ->with('user:id,name')
+            ->get(['id', 'name', 'user_id', 'type']);
+
+        // -------- query base historial --------
+        $historyQuery = Transfer::query()
+            ->select(
+                'id',
+                'from_location_id',
+                'to_location_id',
+                'created_by',
+                'note',
+                'status',
+                'created_at'
+            )
+            ->with([
+                'from:id,name',
+                'to:id,name',
+                'creator:id,name',
+            ])
+            ->withCount([
+                'items as lines_count'
+            ])
+            ->withSum('items as qty_sum', 'quantity');
+
+        // filtrar por dealer (destino)
+        if (!empty($dealerId)) {
+            $historyQuery->where('to_location_id', $dealerId);
+        }
+
+        // filtrar por rango de FECHA PURA (sin hora)
+        if ($fromDay && $toDay) {
+            // ejemplo: 16/10/2025 .. 17/10/2025
+            $historyQuery
+                ->whereDate('created_at', '>=', $fromDay)
+                ->whereDate('created_at', '<=', $toDay);
+        } elseif ($fromDay) {
+            // solo desde este día
+            $historyQuery->whereDate('created_at', '>=', $fromDay);
+        } elseif ($toDay) {
+            // solo hasta este día
+            $historyQuery->whereDate('created_at', '<=', $toDay);
+        }
+
+        $history = $historyQuery
+            ->latest()
+            ->paginate(10)
+            ->appends($request->query())
+            ->withQueryString();
 
         return Inertia::render('Transfers/Create', [
             'isAdmin' => $isAdmin,
             'principalId' => (int) $principalId,
             'locations' => $locations,
+            'dealerLocations' => $dealerLocations,
             'history' => $history,
+            'filters' => [
+                'dealer_id' => $dealerId ? (int) $dealerId : '',
+                'from_date' => $fromDateRaw ?: '',
+                'to_date' => $toDateRaw ?: '',
+            ],
         ]);
+    }
+
+    /**
+     * Recibe "2025-10-16" (<input type="date">)
+     * o "16/10/2025" (humano)
+     * y devuelve "2025-10-16".
+     * Si no se puede parsear, retorna null.
+     */
+    private static function normalizeDay(?string $raw): ?string
+    {
+        if (!$raw)
+            return null;
+
+        // Formato estándar del input date (Y-m-d)
+        try {
+            $c = Carbon::createFromFormat('Y-m-d', $raw);
+            return $c->format('Y-m-d');
+        } catch (\Throwable $e) {
+            // seguimos
+        }
+
+        // Formato día/mes/año (d/m/Y)
+        try {
+            $c = Carbon::createFromFormat('d/m/Y', $raw);
+            return $c->format('Y-m-d');
+        } catch (\Throwable $e) {
+            // nada
+        }
+
+        return null;
     }
 
 

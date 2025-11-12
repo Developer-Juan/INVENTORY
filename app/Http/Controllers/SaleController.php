@@ -16,6 +16,7 @@ use App\Models\SaleItem;
 use App\Models\SaleVoid;
 use App\Models\User;
 use App\Services\DeliveryFare;
+use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,19 +30,27 @@ class SaleController extends Controller
     {
     }
 
-    public function index()
+    public function index(Request $request)
     {
         $user = auth()->user();
 
-        $sales = Sale::query()
+        // ====== leer filtros entrantes ======
+        $dealerId = $request->input('dealer_id');           // delivery_id
+        $fromDate = $request->input('from_date');           // 'YYYY-MM-DD'
+        $toDate = $request->input('to_date');             // 'YYYY-MM-DD'
+        $paymentMethodId = $request->input('payment_method_id');   // id método de pago
+        $status = $request->input('status');              // 'pagado' | 'parcial' | 'debe' | 'anulada'
+
+        // ====== query base ======
+        $salesQuery = Sale::query()
             ->with([
                 'user:id,name',
 
-                // Ítems con nombre y unidad para el hover-preview
+                // Ítems con nombre/unidad para el popover
                 'items' => fn($q) => $q->select('id', 'sale_id', 'inventory_id', 'quantity', 'total')
                     ->with(['inventory:id,name,unit']),
 
-                // **Métodos de pago** (mismo criterio que en show)
+                // Pagos con método
                 'payments' => fn($q) => $q->select('id', 'sale_id', 'payment_method_id')
                     ->with(['method:id,code,name']),
             ])
@@ -57,13 +66,93 @@ class SaleController extends Controller
                 'paid',
                 'balance',
                 'status',
+                'delivery_id',
                 'created_at'
-            )
-            ->latest()
-            ->paginate(15)
-            ->withQueryString();
+            );
 
-        // ==== Resolver ubicación base para stock del carrito ====
+        // ====== filtro dealer / domiciliario ======
+        if (!empty($dealerId)) {
+            $salesQuery->where('delivery_id', $dealerId);
+        }
+
+        // ====== filtro estado ======
+        if (!empty($status)) {
+            $salesQuery->where('status', $status);
+        }
+
+        // ====== filtro método de pago ======
+        if (!empty($paymentMethodId)) {
+            $salesQuery->whereHas('payments', function ($q) use ($paymentMethodId) {
+                $q->where('payment_method_id', $paymentMethodId);
+            });
+        }
+
+        /**
+         * ====== filtro rango de fechas ======
+         *
+         * Caso real:
+         *   created_at en DB = UTC (por defecto en Laravel/MySQL)
+         *   Usuario en Colombia (America/Bogota, UTC-05)
+         *
+         * El usuario elige:
+         *   from_date = 2025-10-07
+         *   to_date   = 2025-10-07
+         *
+         * Eso en zona local significa:
+         *   2025-10-07 00:00:00 -05:00
+         *   hasta
+         *   2025-10-07 23:59:59 -05:00
+         *
+         * Pasado a UTC:
+         *   2025-10-07 05:00:00 UTC
+         *   hasta
+         *   2025-10-08 04:59:59 UTC
+         *
+         * Si comparamos created_at (UTC en DB) contra ese rango UTC, NO perdemos ventas.
+         */
+
+        $tz = config('app.timezone'); 
+
+        if (!empty($fromDate) && !empty($toDate)) {
+
+            // start local -> utc
+            $startLocal = Carbon::parse($fromDate, $tz)->startOfDay();
+            $startUtc = $startLocal->copy()->utc();
+
+            // end local -> utc
+            $endLocal = Carbon::parse($toDate, $tz)->endOfDay();
+            $endUtc = $endLocal->copy()->utc();
+
+            $salesQuery->whereBetween('created_at', [$startUtc, $endUtc]);
+
+        } elseif (!empty($fromDate)) {
+
+            $startLocal = Carbon::parse($fromDate, $tz)->startOfDay();
+            $startUtc = $startLocal->copy()->utc();
+
+            $salesQuery->where('created_at', '>=', $startUtc);
+
+        } elseif (!empty($toDate)) {
+
+            $endLocal = Carbon::parse($toDate, $tz)->endOfDay();
+            $endUtc = $endLocal->copy()->utc();
+
+            $salesQuery->where('created_at', '<=', $endUtc);
+        }
+
+        // ====== ordenar / paginar ======
+        $sales = $salesQuery
+            ->latest() // created_at desc
+            ->paginate(15)
+            ->appends([
+                'dealer_id' => $dealerId,
+                'from_date' => $fromDate,
+                'to_date' => $toDate,
+                'payment_method_id' => $paymentMethodId,
+                'status' => $status,
+            ]);
+
+        // ====== Resolver ubicación base para stock del carrito (igual lógica que tenías) ======
         $principalId = Location::whereIn('type', ['principal', 'main'])->value('id');
         $userLocId = Location::where('user_id', $user->id)->value('id');
         $dealerLocId = Location::where('type', 'dealer')->where('user_id', $user->id)->value('id');
@@ -76,7 +165,7 @@ class SaleController extends Controller
             $myLocationId = $userLocId ?: $principalId ?: Location::min('id');
         }
 
-        // Ítems disponibles (on_hand - reserved) en esa ubicación
+        // ====== Ítems disponibles en esa ubicación (para el modal carrito) ======
         $items = Inventory::query()
             ->leftJoin('inventory_stocks as s', function ($j) use ($myLocationId) {
                 $j->on('s.inventory_id', '=', 'inventories.id')
@@ -90,26 +179,48 @@ class SaleController extends Controller
                 DB::raw('(COALESCE(s.on_hand,0) - COALESCE(s.reserved,0)) as quantity'),
             ]);
 
-        // Métodos de pago disponibles (para el modal de pago)
-        $paymentMethods = PaymentMethod::select('id', 'code', 'name')
+        // ====== Métodos de pago (para modal Y para filtro en la vista) ======
+        $paymentMethodsList = PaymentMethod::select('id', 'code', 'name')
             ->orderBy('name')
             ->get();
 
-        // Solo dealers con ubicación dealer creada
+        // ====== Dealers (para modal Y para filtro dealer) ======
         $deliverers = User::role('dealer')
             ->whereIn('id', Location::where('type', 'dealer')->whereNotNull('user_id')->pluck('user_id'))
             ->select('id', 'name')
             ->orderBy('name')
             ->get();
 
+        // ====== Estados que queremos ofrecer en el filtro ======
+        $saleStatuses = [
+            'pagado' => 'Pagado',
+            'parcial' => 'Parcial',
+            'debe' => 'Debe',
+            'anulada' => 'Anulada',
+        ];
+
+        // Filtros actuales para hidratar el front
+        $currentFilters = [
+            'dealer_id' => $dealerId ?: '',
+            'from_date' => $fromDate ?: '',
+            'to_date' => $toDate ?: '',
+            'payment_method_id' => $paymentMethodId ?: '',
+            'status' => $status ?: '',
+        ];
+
         return Inertia::render('Sales/Index', [
             'sales' => $sales,
             'items' => $items,
-            'paymentMethods' => $paymentMethods,
+            'paymentMethods' => $paymentMethodsList,
             'deliverers' => $deliverers,
+            'saleStatuses' => $saleStatuses,
+            'filters' => $currentFilters,
             'current_location_id' => $myLocationId,
         ]);
     }
+
+
+
 
 
 

@@ -1,22 +1,28 @@
 // resources/js/Pages/Sales/Show.jsx
-import React from 'react';
-import { Head, usePage, Link } from '@inertiajs/react';
-import { Inertia } from '@inertiajs/inertia';
+import React, { useState, useEffect } from 'react';
+import { Head, usePage, Link, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import toast from 'react-hot-toast';
 
 export default function Show({ sale: saleProp }) {
-    // Si viene por props lo usamos; si no, lo tomamos del share
+    // Traemos props compartidos por Inertia
     const shared = usePage().props;
-    const sale = saleProp ?? shared.sale;
+    const initialSale = saleProp ?? shared.sale;
     const { auth, errors, flash = {} } = shared;
 
-    if (!sale) return null;
+    // Estado local para poder actualizar la vista sin recargar
+    const [localSale, setLocalSale] = useState(initialSale);
 
-    const fmtQty = (q) =>
-        Number(q ?? 0).toLocaleString('es-CO', {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 3,
-        });
+    // Mostrar flashes del backend (por si llegaste desde redirect normal)
+    useEffect(() => {
+        if (flash?.success) toast.success(flash.success);
+        if (flash?.error) toast.error(flash.error);
+        if (flash?.info) toast(flash.info);
+    }, [flash]);
+
+    if (!localSale) return null;
+
+    const sale = localSale;
 
     const fmtMoney = (n) =>
         Number(n ?? 0).toLocaleString('es-CO', {
@@ -25,7 +31,9 @@ export default function Show({ sale: saleProp }) {
         });
 
     const customerId4 =
-        sale.customer_id != null ? String(sale.customer_id).padStart(4, '0') : null;
+        sale.customer_id != null
+            ? String(sale.customer_id).padStart(4, '0')
+            : null;
 
     const statusBadge =
         sale.status === 'pagado'
@@ -34,35 +42,62 @@ export default function Show({ sale: saleProp }) {
                 ? 'px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800'
                 : 'px-2 py-0.5 rounded-full bg-red-100 text-red-800';
 
-    // —— Delivery
+    // Delivery
     const hasDelivery = !!sale.delivery_id;
-    const deliveryPaid = !!sale.delivery_settled_at; // datetime o null
+    const deliveryPaid = !!sale.delivery_settled_at; // bool
     const deliveryBadge = deliveryPaid
         ? 'px-2 py-0.5 rounded-full bg-green-100 text-green-800'
         : 'px-2 py-0.5 rounded-full bg-red-100 text-red-800';
 
-    function markDeliveryPaid() {
+    async function markDeliveryPaid() {
         if (!sale.delivery_pay || sale.delivery_pay <= 0) {
-            alert('No hay tarifa de delivery para marcar.');
+            toast.error('No hay tarifa de delivery para marcar.');
             return;
         }
         if (!confirm('¿Marcar el pago al domi como pagado?')) return;
 
-        Inertia.post(`/sales/${sale.id}/delivery/settle`, {}, { preserveScroll: true });
+        router.post(
+            `/sales/${sale.id}/delivery/settle`,
+            {},
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    // Optimistic UI: marcamos como pagado inmediatamente
+                    const nowIso = new Date().toISOString();
+
+                    setLocalSale((prev) => ({
+                        ...prev,
+                        delivery_settled_at: nowIso,
+                    }));
+
+                    console.warn('Delivery marcado como pagado.');
+                },
+                onError: (err) => {
+                    console.error(err);
+                    toast.error('No se pudo marcar el pago.');
+                },
+            }
+        );
     }
 
     return (
         <AuthenticatedLayout
             auth={auth}
             errors={errors}
-            header={<h2 className="font-semibold text-xl text-gray-800 dark:text-gray-200">Venta #{sale.id}</h2>}
+            header={
+                <h2 className="font-semibold text-xl text-gray-800 dark:text-gray-200">
+                    Venta #{sale.id}
+                </h2>
+            }
         >
             <Head title={`Venta #${sale.id}`} />
 
             <div className="p-6 max-w-5xl mx-auto space-y-6">
-                {/* Resumen */}
+                {/* ================= RESUMEN ================= */}
                 <div className="bg-white shadow-sm sm:rounded-lg p-6 space-y-1">
-                    <h1 className="text-xl font-bold mb-2">Venta #{sale.id}</h1>
+                    <h1 className="text-xl font-bold mb-2">
+                        Venta #{sale.id}
+                    </h1>
 
                     <p>
                         <span className="text-gray-600">Cliente ID:</span>{' '}
@@ -76,7 +111,9 @@ export default function Show({ sale: saleProp }) {
 
                     <p>
                         <span className="text-gray-600">Fecha:</span>{' '}
-                        {sale.created_at ? new Date(sale.created_at).toLocaleString('es-CO') : '—'}
+                        {sale.created_at
+                            ? new Date(sale.created_at).toLocaleString('es-CO')
+                            : '—'}
                     </p>
 
                     <p className="mt-2">
@@ -98,30 +135,45 @@ export default function Show({ sale: saleProp }) {
                     </p>
                 </div>
 
-                {/* Delivery */}
+                {/* ================= DELIVERY ================= */}
                 <div className="bg-white shadow-sm sm:rounded-lg p-6 space-y-2">
                     <h2 className="font-semibold mb-2">Delivery</h2>
 
                     {!hasDelivery ? (
-                        <p className="text-gray-500">Sin delivery asignado.</p>
+                        <p className="text-gray-500">
+                            Sin delivery asignado.
+                        </p>
                     ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <p>
-                                <span className="text-gray-600">Repartidor:</span>{' '}
+                                <span className="text-gray-600">
+                                    Repartidor:
+                                </span>{' '}
                                 {sale.delivery?.name ?? '—'}
                             </p>
                             <p>
-                                <span className="text-gray-600">KM recorridos:</span>{' '}
-                                {Number(sale.km ?? 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })}
+                                <span className="text-gray-600">
+                                    KM recorridos:
+                                </span>{' '}
+                                {Number(sale.km ?? 0).toLocaleString('es-CO', {
+                                    maximumFractionDigits: 2,
+                                })}
                             </p>
                             <p>
-                                <span className="text-gray-600">Tarifa delivery:</span>{' '}
+                                <span className="text-gray-600">
+                                    Tarifa delivery:
+                                </span>{' '}
                                 ${fmtMoney(sale.delivery_pay ?? 0)}
                             </p>
-                            <p className="flex items-center gap-2">
-                                <span className="text-gray-600">Estado pago domi:</span>{' '}
+
+                            <p className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                                <span className="text-gray-600">
+                                    Estado pago domi:
+                                </span>{' '}
                                 {deliveryPaid ? (
-                                    <span className={deliveryBadge}>Pagado</span>
+                                    <span className={deliveryBadge}>
+                                        Pagado
+                                    </span>
                                 ) : (
                                     <button
                                         type="button"
@@ -132,9 +184,14 @@ export default function Show({ sale: saleProp }) {
                                         Pendiente
                                     </button>
                                 )}
+
                                 {deliveryPaid && sale.delivery_settled_at && (
-                                    <span className="text-gray-500">
-                                        ({new Date(sale.delivery_settled_at).toLocaleString('es-CO')})
+                                    <span className="text-gray-500 text-xs sm:text-sm">
+                                        (
+                                        {new Date(
+                                            sale.delivery_settled_at
+                                        ).toLocaleString('es-CO')}
+                                        )
                                     </span>
                                 )}
                             </p>
@@ -142,24 +199,29 @@ export default function Show({ sale: saleProp }) {
                     )}
                 </div>
 
-                {/* Ítems */}
-                {/* Ítems */}
-                {/* Ítems */}
+                {/* ================= ÍTEMS ================= */}
                 <div className="bg-white shadow-sm sm:rounded-lg p-6">
                     <h2 className="font-semibold mb-2">Ítems</h2>
+
                     {Array.isArray(sale.items) && sale.items.length ? (
                         <ul className="list-disc ml-6 space-y-1">
                             {sale.items.map((it) => {
                                 const qty = Number(it.quantity ?? 0);
                                 const total = Number(it.total ?? 0);
-                                const unitType = it.inventory?.unit ?? ''; // ← aquí tomas la unidad real
+                                const unitType = it.inventory?.unit ?? '';
 
                                 return (
                                     <li key={it.id}>
-                                        {it.inventory?.name ?? `#${it.inventory_id}`} —{' '}
-                                        {qty.toLocaleString('es-CO', { maximumFractionDigits: 3 })}
+                                        {it.inventory?.name ??
+                                            `#${it.inventory_id}`}{' '}
+                                        —{' '}
+                                        {qty.toLocaleString('es-CO', {
+                                            maximumFractionDigits: 3,
+                                        })}
                                         {unitType ? ` ${unitType}` : ''} x{' '}
-                                        {total.toLocaleString('es-CO', { maximumFractionDigits: 2 })}
+                                        {total.toLocaleString('es-CO', {
+                                            maximumFractionDigits: 2,
+                                        })}
                                     </li>
                                 );
                             })}
@@ -169,17 +231,18 @@ export default function Show({ sale: saleProp }) {
                     )}
                 </div>
 
-
-
-                {/* Pagos */}
+                {/* ================= PAGOS ================= */}
                 <div className="bg-white shadow-sm sm:rounded-lg p-6">
                     <h2 className="font-semibold mb-2">Pagos</h2>
+
                     {Array.isArray(sale.payments) && sale.payments.length ? (
                         <ul className="list-disc ml-6 space-y-1">
                             {sale.payments.map((p) => (
                                 <li key={p.id}>
                                     {p.method?.name}: ${fmtMoney(p.amount)}
-                                    {p.reference ? ` (ref: ${p.reference})` : ' (sin ref)'}
+                                    {p.reference
+                                        ? ` (ref: ${p.reference})`
+                                        : ' (sin ref)'}
                                 </li>
                             ))}
                         </ul>
@@ -188,8 +251,12 @@ export default function Show({ sale: saleProp }) {
                     )}
                 </div>
 
+                {/* ================= VOLVER ================= */}
                 <div className="flex justify-end">
-                    <Link href="/sales" className="text-indigo-600 hover:text-indigo-800">
+                    <Link
+                        href={route('sales.index')}
+                        className="text-indigo-600 hover:text-indigo-800"
+                    >
                         Volver al listado
                     </Link>
                 </div>

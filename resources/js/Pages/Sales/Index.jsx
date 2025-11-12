@@ -68,7 +68,7 @@ function ItemsPopover({ sale }) {
             top: b.bottom + 8,
             left: Math.min(
                 Math.max(8, b.left),
-                Math.max(8, window.innerWidth - 8 - 288) // 288 = w-72
+                Math.max(8, window.innerWidth - 8 - 288) // 288 = w-72 aprox ancho panel
             ),
         };
     };
@@ -127,8 +127,8 @@ function ItemsPopover({ sale }) {
                         </Popover.Button>
                     </div>
 
-                    {/* Desktop */}
                     <Portal>
+                        {/* Desktop panel flotante */}
                         <Transition
                             as={Fragment}
                             enter="transition ease-out duration-100"
@@ -150,7 +150,7 @@ function ItemsPopover({ sale }) {
                             </Popover.Panel>
                         </Transition>
 
-                        {/* Mobile: overlay + sheet */}
+                        {/* Mobile overlay + sheet */}
                         <Transition
                             as={Fragment}
                             enter="transition ease-out duration-150"
@@ -218,6 +218,8 @@ export default function Index() {
         items = [],
         paymentMethods = [],
         deliverers = [],
+        saleStatuses = {},   // <-- mapa tipo { pagado: 'Pagado', parcial: 'Parcial', ... }
+        filters = {},        // <-- { dealer_id, from_date, to_date, payment_method_id, status }
         auth,
         errors = {},
         flash = {},
@@ -234,15 +236,50 @@ export default function Index() {
     const rows = Array.isArray(sales) ? sales : (sales?.data ?? []);
     const links = Array.isArray(sales) ? [] : (sales?.links ?? []);
 
-    // ===== Carrito =====
+    // ===================== Filtros (estado controlado) =====================
+    const [dealerId, setDealerId] = useState(filters.dealer_id ?? '');
+    const [fromDate, setFromDate] = useState(filters.from_date ?? '');
+    const [toDate, setToDate] = useState(filters.to_date ?? '');
+    const [paymentMethodId, setPaymentMethodId] = useState(filters.payment_method_id ?? '');
+    const [status, setStatus] = useState(filters.status ?? '');
+
+    function applyFilters(e) {
+        e.preventDefault();
+
+        const query = {};
+        if (dealerId) query.dealer_id = dealerId;
+        if (fromDate) query.from_date = fromDate;
+        if (toDate) query.to_date = toDate;
+        if (paymentMethodId) query.payment_method_id = paymentMethodId;
+        if (status) query.status = status;
+
+        router.get(route('sales.index'), query, {
+            preserveScroll: true,
+            preserveState: true,
+        });
+    }
+
+    function clearFilters() {
+        setDealerId('');
+        setFromDate('');
+        setToDate('');
+        setPaymentMethodId('');
+        setStatus('');
+
+        router.get(route('sales.index'), {}, {
+            preserveScroll: true,
+            preserveState: true,
+        });
+    }
+
+    // ===================== Carrito / Venta =====================
     const [openCart, setOpenCart] = useState(false);
-    const [cart, setCart] = useState({});                 // { [inventoryId]: qty | '' }
-    const [linePrice, setLinePrice] = useState({});       // total por ítem (override)
+    const [cart, setCart] = useState({});           // { [inventoryId]: qty | '' }
+    const [linePrice, setLinePrice] = useState({}); // { [inventoryId]: overrideTotal }
     const [cartItems, setCartItems] = useState([]);
     const [bulkFlow, setBulkFlow] = useState(false);
     const [submitting, setSubmitting] = useState(false);
 
-    // ===== Cantidades =====
     const STEP = 0.5;
     const clampFloat = (n, min, max) => Math.max(min, Math.min(max, n));
     const snapToStep = (n, step = STEP) => Math.round(n / step) * step;
@@ -343,9 +380,14 @@ export default function Index() {
         if (bulkFlow) {
             setNewDue(Math.max(0, Number(totalSum) - Number(pd.pay || 0)));
         } else if (selected) {
-            const bal = Number(selected.balance ?? Math.max(0, (selected.total ?? 0) - (selected.paid ?? 0)));
+            const bal = Number(
+                selected.balance ??
+                Math.max(0, (selected.total ?? 0) - (selected.paid ?? 0))
+            );
             setNewDue(Math.max(0, bal - Number(pd.pay || 0)));
-        } else setNewDue(0);
+        } else {
+            setNewDue(0);
+        }
     }, [pd.pay, totalSum, bulkFlow, selected]);
 
     useEffect(() => { if (!deliveryId) setKm(''); }, [deliveryId]);
@@ -363,7 +405,9 @@ export default function Index() {
 
                 const override = linePrice[i];
                 const hasOverride = override !== undefined && override !== '' && Number(override) > 0;
-                const lineTotal = hasOverride ? Number(override) : Number(prod.sale_price ?? 0) * qty;
+                const lineTotal = hasOverride
+                    ? Number(override)
+                    : Number(prod.sale_price ?? 0) * qty;
                 if (!(lineTotal > 0)) return null;
 
                 const unit = lineTotal / qty;
@@ -381,7 +425,9 @@ export default function Index() {
 
         setCartItems(lines);
         setPd({ paid: 0, pay: Number(totalSum), name: '', phone: '' });
-        setCustomerId(''); setDeliveryId(''); setKm('');
+        setCustomerId('');
+        setDeliveryId('');
+        setKm('');
         setBulkFlow(true);
         setOpenCart(false);
         setOpenPay(true);
@@ -391,8 +437,12 @@ export default function Index() {
         setSelected(sale);
         setPd({
             paid: Number(sale.paid ?? 0),
-            pay: Number(sale.balance ?? Math.max(0, (sale.total ?? 0) - (sale.paid ?? 0))),
-            name: '', phone: '',
+            pay: Number(
+                sale.balance ??
+                Math.max(0, (sale.total ?? 0) - (sale.paid ?? 0))
+            ),
+            name: '',
+            phone: '',
         });
         setReference('');
         setBulkFlow(false);
@@ -418,47 +468,85 @@ export default function Index() {
             let customerIdStr = null;
             if (customerId !== '' && customerId != null) {
                 const n = Number(customerId);
-                if (!Number.isFinite(n) || n < 0 || n > 9999) return toast.error('ID de cliente inválido (0–9999)');
+                if (!Number.isFinite(n) || n < 0 || n > 9999) {
+                    return toast.error('ID de cliente inválido (0–9999)');
+                }
                 customerIdStr = String(Math.floor(n)).padStart(4, '0');
             }
             const hasDelivery = String(deliveryId || '') !== '';
             const kmVal = parseFloat(km || '0');
-            if (hasDelivery && !(kmVal > 0)) return toast.error('Ingresa los KM (> 0)');
-            if (amount < totalSum && (!pd.name || !pd.phone))
-                return toast.error('Si es pago parcial, ingresa nombre y teléfono');
+            if (hasDelivery && !(kmVal > 0)) {
+                return toast.error('Ingresa los KM (> 0)');
+            }
+            if (
+                amount < totalSum &&
+                (!pd.name || !pd.phone)
+            ) {
+                return toast.error(
+                    'Si es pago parcial, ingresa nombre y teléfono'
+                );
+            }
 
             const payload = {
                 customer_id: customerIdStr,
                 discount: 0,
                 tax: 0,
                 items: cartItems,
-                payments: [{ payment_method_id: methodId, amount, reference: reference || null }],
+                payments: [
+                    {
+                        payment_method_id: methodId,
+                        amount,
+                        reference: reference || null,
+                    },
+                ],
             };
-            if (hasDelivery) { payload.delivery_id = Number(deliveryId); payload.km = kmVal; }
+            if (hasDelivery) {
+                payload.delivery_id = Number(deliveryId);
+                payload.km = kmVal;
+            }
 
             router.post(route('sales.store'), payload, {
                 preserveScroll: true,
                 onStart: () => setSubmitting(true),
                 onFinish: () => setSubmitting(false),
                 onSuccess: () => {
-                    setOpenPay(false); setCart({}); setLinePrice({}); setDeliveryId(''); setKm('');
+                    setOpenPay(false);
+                    setCart({});
+                    setLinePrice({});
+                    setDeliveryId('');
+                    setKm('');
                     toast.success('Venta creada correctamente');
                 },
-                onError: (errs) => { console.error(errs); showErrors(errs); },
+                onError: (errs) => {
+                    console.error(errs);
+                    showErrors(errs);
+                },
             });
             return;
         }
 
+        // pago parcial/saldo de una venta existente
         if (!selected) return;
+
         router.post(
             route('sales.payments.store', selected.id),
-            { payment_method_id: methodId, amount, reference: reference || null },
+            {
+                payment_method_id: methodId,
+                amount,
+                reference: reference || null,
+            },
             {
                 preserveScroll: true,
                 onStart: () => setSubmitting(true),
                 onFinish: () => setSubmitting(false),
-                onSuccess: () => { setOpenPay(false); toast.success('Pago registrado correctamente'); },
-                onError: (errs) => { console.error(errs); showErrors(errs); },
+                onSuccess: () => {
+                    setOpenPay(false);
+                    toast.success('Pago registrado correctamente');
+                },
+                onError: (errs) => {
+                    console.error(errs);
+                    showErrors(errs);
+                },
             }
         );
     }
@@ -475,14 +563,131 @@ export default function Index() {
                 {errors && Object.keys(errors).length > 0 && (
                     <div className="mb-4 p-3 rounded bg-red-50 text-red-700 text-sm">
                         <ul className="list-disc pl-5">
-                            {Object.entries(errors).map(([k, v]) => (
-                                Array.isArray(v) ? v.map((m, i) => <li key={`${k}-${i}`}><b>{k}</b>: {m}</li>)
-                                    : <li key={k}><b>{k}</b>: {String(v)}</li>
-                            ))}
+                            {Object.entries(errors).map(([k, v]) =>
+                                Array.isArray(v) ? (
+                                    v.map((m, i) => (
+                                        <li key={`${k}-${i}`}>
+                                            <b>{k}</b>: {m}
+                                        </li>
+                                    ))
+                                ) : (
+                                    <li key={k}>
+                                        <b>{k}</b>: {String(v)}
+                                    </li>
+                                )
+                            )}
                         </ul>
                     </div>
                 )}
 
+                {/* ================== FILTROS ================== */}
+                <form
+                    onSubmit={applyFilters}
+                    className="mb-4 bg-white dark:bg-gray-800 rounded-xl shadow p-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6"
+                >
+                    {/* Dealer */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Dealer
+                        </label>
+                        <select
+                            className="mt-1 w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
+                            value={dealerId}
+                            onChange={(e) => setDealerId(e.target.value)}
+                        >
+                            <option value="">Todos</option>
+                            {deliverers.map((d) => (
+                                <option key={d.id} value={d.id}>
+                                    {d.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Desde */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Desde
+                        </label>
+                        <input
+                            type="date"
+                            className="mt-1 w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
+                            value={fromDate}
+                            onChange={(e) => setFromDate(e.target.value)}
+                        />
+                    </div>
+
+                    {/* Hasta */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Hasta
+                        </label>
+                        <input
+                            type="date"
+                            className="mt-1 w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
+                            value={toDate}
+                            onChange={(e) => setToDate(e.target.value)}
+                        />
+                    </div>
+
+                    {/* Forma de pago */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Forma de pago
+                        </label>
+                        <select
+                            className="mt-1 w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
+                            value={paymentMethodId}
+                            onChange={(e) => setPaymentMethodId(e.target.value)}
+                        >
+                            <option value="">Todas</option>
+                            {paymentMethods.map((pm) => (
+                                <option key={pm.id} value={pm.id}>
+                                    {pm.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Estado */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Estado
+                        </label>
+                        <select
+                            className="mt-1 w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
+                            value={status}
+                            onChange={(e) => setStatus(e.target.value)}
+                        >
+                            <option value="">Todos</option>
+                            {Object.entries(saleStatuses).map(([key, label]) => (
+                                <option key={key} value={key}>
+                                    {label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Botones */}
+                    <div className="flex items-end gap-2">
+                        <button
+                            type="submit"
+                            className="flex-1 px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+                        >
+                            Filtrar
+                        </button>
+
+                        <button
+                            type="button"
+                            className="flex-1 px-4 py-2 rounded bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                            onClick={clearFilters}
+                        >
+                            Limpiar
+                        </button>
+                    </div>
+                </form>
+
+                {/* BOTÓN NUEVA VENTA */}
                 <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <button
                         onClick={() => setOpenCart(true)}
@@ -500,10 +705,18 @@ export default function Index() {
                             <div key={s.id} className="bg-white rounded-lg shadow p-4">
                                 <div className="flex items-center justify-between">
                                     <div className="font-semibold">#{s.id}</div>
-                                    <span className={`text-xs px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
-                                            : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
-                                                : s.status === 'anulada' ? 'bg-gray-200 text-gray-700'
-                                                    : 'bg-red-100 text-red-800'}`}>{s.status}</span>
+                                    <span
+                                        className={`text-xs px-2 py-1 rounded-full ${s.status === 'pagado'
+                                                ? 'bg-green-100 text-green-800'
+                                                : s.status === 'parcial'
+                                                    ? 'bg-yellow-100 text-yellow-800'
+                                                    : s.status === 'anulada'
+                                                        ? 'bg-gray-200 text-gray-700'
+                                                        : 'bg-red-100 text-red-800'
+                                            }`}
+                                    >
+                                        {s.status}
+                                    </span>
                                 </div>
 
                                 <div className="mt-2 text-sm text-gray-600">
@@ -522,30 +735,54 @@ export default function Index() {
                                         {methods.length ? (
                                             <div className="flex flex-wrap gap-1">
                                                 {methods.map(n => (
-                                                    <span key={n} className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700">
+                                                    <span
+                                                        key={n}
+                                                        className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700"
+                                                    >
                                                         {n}
                                                     </span>
                                                 ))}
                                             </div>
-                                        ) : <span className="text-gray-400">—</span>}
+                                        ) : (
+                                            <span className="text-gray-400">—</span>
+                                        )}
                                     </div>
 
-                                    <div><span className="text-gray-500">Total:</span> ${Number(s.total).toLocaleString('es-CO')}</div>
-                                    <div><span className="text-gray-500">Pagado:</span> ${Number(s.paid).toLocaleString('es-CO')}</div>
-                                    <div><span className="text-gray-500">Saldo:</span> ${Number(s.balance).toLocaleString('es-CO')}</div>
+                                    <div>
+                                        <span className="text-gray-500">Total:</span>{' '}
+                                        ${Number(s.total).toLocaleString('es-CO')}
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-500">Pagado:</span>{' '}
+                                        ${Number(s.paid).toLocaleString('es-CO')}
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-500">Saldo:</span>{' '}
+                                        ${Number(s.balance).toLocaleString('es-CO')}
+                                    </div>
                                 </div>
 
                                 <div className="mt-3 flex gap-3">
                                     {s.status !== 'pagado' && s.status !== 'anulada' && (
-                                        <button onClick={() => beginPay(s)} className="flex-1 text-yellow-700 border border-yellow-300 rounded-md py-2">
+                                        <button
+                                            onClick={() => beginPay(s)}
+                                            className="flex-1 text-yellow-700 border border-yellow-300 rounded-md py-2"
+                                        >
                                             Saldar Deuda
                                         </button>
                                     )}
-                                    <Link href={route('sales.show', s.id)} className="flex-1 text-center text-indigo-700 border border-indigo-300 rounded-md py-2">
+                                    <Link
+                                        href={route('sales.show', s.id)}
+                                        className="flex-1 text-center text-indigo-700 border border-indigo-300 rounded-md py-2"
+                                    >
                                         Ver
                                     </Link>
                                     {isAdmin && s.status !== 'anulada' && (
-                                        <button onClick={() => cancelSale(s)} className="flex-1 text-white bg-red-600 hover:bg-red-700 rounded-md py-2 disabled:opacity-50" disabled={submitting}>
+                                        <button
+                                            onClick={() => cancelSale(s)}
+                                            className="flex-1 text-white bg-red-600 hover:bg-red-700 rounded-md py-2 disabled:opacity-50"
+                                            disabled={submitting}
+                                        >
                                             Anular
                                         </button>
                                     )}
@@ -553,7 +790,9 @@ export default function Index() {
                             </div>
                         );
                     })}
-                    {rows.length === 0 && <div className="text-sm text-gray-500 text-center">Sin registros.</div>}
+                    {rows.length === 0 && (
+                        <div className="text-sm text-gray-500 text-center">Sin registros.</div>
+                    )}
                 </div>
 
                 {/* Tabla desktop */}
@@ -561,18 +800,37 @@ export default function Index() {
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50 sticky top-0 z-10">
                             <tr>
-                                {['#', 'Fecha', 'Ítems', 'Formas de pago', 'Total', 'Pagado', 'Saldo', 'Estado', 'Acciones'].map(h => (
-                                    <th key={h} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
+                                {[
+                                    '#',
+                                    'Fecha',
+                                    'Ítems',
+                                    'Formas de pago',
+                                    'Total',
+                                    'Pagado',
+                                    'Saldo',
+                                    'Estado',
+                                    'Acciones',
+                                ].map((h) => (
+                                    <th
+                                        key={h}
+                                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"
+                                    >
+                                        {h}
+                                    </th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {rows.map(s => {
+                            {rows.map((s) => {
                                 const methods = paymentNames(s);
                                 return (
                                     <tr key={s.id}>
                                         <td className="px-6 py-4 whitespace-nowrap">#{s.id}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap">{s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : ''}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            {s.created_at
+                                                ? new Date(s.created_at).toLocaleString('es-CO')
+                                                : ''}
+                                        </td>
 
                                         {/* Ítems + Popover */}
                                         <td className="px-6 py-4 whitespace-nowrap">
@@ -586,8 +844,11 @@ export default function Index() {
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             {methods.length ? (
                                                 <div className="flex flex-wrap gap-1 max-w-[22rem]">
-                                                    {methods.map(n => (
-                                                        <span key={n} className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700">
+                                                    {methods.map((n) => (
+                                                        <span
+                                                            key={n}
+                                                            className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700"
+                                                        >
                                                             {n}
                                                         </span>
                                                     ))}
@@ -597,22 +858,52 @@ export default function Index() {
                                             )}
                                         </td>
 
-                                        <td className="px-6 py-4 whitespace-nowrap">${Number(s.total).toLocaleString('es-CO')}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap">${Number(s.paid).toLocaleString('es-CO')}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap">${Number(s.balance).toLocaleString('es-CO')}</td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <span className={`px-2 py-1 rounded-full ${s.status === 'pagado' ? 'bg-green-100 text-green-800'
-                                                    : s.status === 'parcial' ? 'bg-yellow-100 text-yellow-800'
-                                                        : s.status === 'anulada' ? 'bg-gray-200 text-gray-700'
-                                                            : 'bg-red-100 text-red-800'}`}>{s.status}</span>
+                                            ${Number(s.total).toLocaleString('es-CO')}
                                         </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            ${Number(s.paid).toLocaleString('es-CO')}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            ${Number(s.balance).toLocaleString('es-CO')}
+                                        </td>
+
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <span
+                                                className={`px-2 py-1 rounded-full ${s.status === 'pagado'
+                                                        ? 'bg-green-100 text-green-800'
+                                                        : s.status === 'parcial'
+                                                            ? 'bg-yellow-100 text-yellow-800'
+                                                            : s.status === 'anulada'
+                                                                ? 'bg-gray-200 text-gray-700'
+                                                                : 'bg-red-100 text-red-800'
+                                                    }`}
+                                            >
+                                                {s.status}
+                                            </span>
+                                        </td>
+
                                         <td className="px-6 py-4 whitespace-nowrap space-x-3">
                                             {s.status !== 'pagado' && s.status !== 'anulada' && (
-                                                <button onClick={() => beginPay(s)} className="text-yellow-600 hover:text-yellow-900">Saldar Deuda</button>
+                                                <button
+                                                    onClick={() => beginPay(s)}
+                                                    className="text-yellow-600 hover:text-yellow-900"
+                                                >
+                                                    Saldar Deuda
+                                                </button>
                                             )}
-                                            <Link href={route('sales.show', s.id)} className="text-indigo-600 hover:text-indigo-900">Ver</Link>
+                                            <Link
+                                                href={route('sales.show', s.id)}
+                                                className="text-indigo-600 hover:text-indigo-900"
+                                            >
+                                                Ver
+                                            </Link>
                                             {isAdmin && s.status !== 'anulada' && (
-                                                <button onClick={() => cancelSale(s)} className="text-red-600 hover:text-red-900 disabled:opacity-50" disabled={submitting}>
+                                                <button
+                                                    onClick={() => cancelSale(s)}
+                                                    className="text-red-600 hover:text-red-900 disabled:opacity-50"
+                                                    disabled={submitting}
+                                                >
                                                     Anular
                                                 </button>
                                             )}
@@ -620,7 +911,16 @@ export default function Index() {
                                     </tr>
                                 );
                             })}
-                            {rows.length === 0 && <tr><td className="px-6 py-4 text-sm text-gray-500" colSpan={9}>Sin registros.</td></tr>}
+                            {rows.length === 0 && (
+                                <tr>
+                                    <td
+                                        className="px-6 py-4 text-sm text-gray-500"
+                                        colSpan={9}
+                                    >
+                                        Sin registros.
+                                    </td>
+                                </tr>
+                            )}
                         </tbody>
                     </table>
                 </div>
@@ -633,7 +933,10 @@ export default function Index() {
                                 key={i}
                                 href={link.url || '#'}
                                 preserveScroll
-                                className={`px-3 py-1 rounded border ${link.active ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'} ${!link.url ? 'opacity-50 pointer-events-none' : ''}`}
+                                className={`px-3 py-1 rounded border ${link.active
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-white text-gray-700'
+                                    } ${!link.url ? 'opacity-50 pointer-events-none' : ''}`}
                                 dangerouslySetInnerHTML={{ __html: link.label }}
                             />
                         ))}
@@ -647,24 +950,43 @@ export default function Index() {
                 <div className="fixed inset-0 flex items-center justify-center p-0 md:p-4">
                     <Dialog.Panel
                         className="
-              w-full max-w-5xl bg-white shadow-xl flex flex-col
-              h-[100dvh] md:h-auto md:max-h-[90vh]
-              rounded-none md:rounded-2xl
-            "
+                            w-full max-w-5xl bg-white shadow-xl flex flex-col
+                            h-[100dvh] md:h-auto md:max-h-[90vh]
+                            rounded-none md:rounded-2xl
+                        "
                     >
                         <div className="p-4 md:p-5 border-b sticky top-0 bg-white z-10 flex items-center justify-between">
-                            <Dialog.Title className="text-base md:text-lg font-bold">Carrito</Dialog.Title>
-                            <button onClick={() => setOpenCart(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+                            <Dialog.Title className="text-base md:text-lg font-bold">
+                                Carrito
+                            </Dialog.Title>
+                            <button
+                                onClick={() => setOpenCart(false)}
+                                className="text-gray-500 hover:text-gray-700"
+                            >
+                                ✕
+                            </button>
                         </div>
 
                         <div className="p-4 md:p-5 flex-1 overflow-y-auto md:max-h-[65vh]">
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-                                {items.map(prod => (
-                                    <div key={prod.id} className="border p-3 md:p-4 rounded-lg">
-                                        <h3 className="font-semibold text-sm md:text-base">{prod.name ?? prod.code ?? `#${prod.id}`}</h3>
-                                        <p className="text-xs md:text-sm text-gray-600">Stock: {fmtQty(prod.quantity)}</p>
+                                {items.map((prod) => (
+                                    <div
+                                        key={prod.id}
+                                        className="border p-3 md:p-4 rounded-lg"
+                                    >
+                                        <h3 className="font-semibold text-sm md:text-base">
+                                            {prod.name ??
+                                                prod.code ??
+                                                `#${prod.id}`}
+                                        </h3>
                                         <p className="text-xs md:text-sm text-gray-600">
-                                            Precio catálogo (unidad): ${Number(prod.sale_price ?? 0).toLocaleString('es-CO')}
+                                            Stock: {fmtQty(prod.quantity)}
+                                        </p>
+                                        <p className="text-xs md:text-sm text-gray-600">
+                                            Precio catálogo (unidad): $
+                                            {Number(
+                                                prod.sale_price ?? 0
+                                            ).toLocaleString('es-CO')}
                                         </p>
 
                                         <input
@@ -674,16 +996,29 @@ export default function Index() {
                                             className="mt-3 w-full border px-2 py-2 rounded-md text-sm"
                                             placeholder="Precio total del ítem (opcional)"
                                             value={linePrice[prod.id] ?? ''}
-                                            onChange={e => setLinePrice(prev => ({ ...prev, [prod.id]: e.target.value }))}
+                                            onChange={(e) =>
+                                                setLinePrice((prev) => ({
+                                                    ...prev,
+                                                    [prod.id]: e.target.value,
+                                                }))
+                                            }
                                         />
 
                                         <div className="mt-3 flex items-stretch gap-2">
                                             <button
                                                 type="button"
-                                                onClick={() => addQty(prod.id, -1, prod.quantity)}
+                                                onClick={() =>
+                                                    addQty(
+                                                        prod.id,
+                                                        -1,
+                                                        prod.quantity
+                                                    )
+                                                }
                                                 className="w-10 h-10 grid place-items-center bg-gray-100 rounded-md text-xl"
                                                 aria-label="Restar"
-                                            >−</button>
+                                            >
+                                                −
+                                            </button>
 
                                             <input
                                                 type="number"
@@ -695,16 +1030,35 @@ export default function Index() {
                                                 className="flex-1 text-center border rounded-md px-2 py-2 text-base"
                                                 placeholder="0.5"
                                                 value={cart[prod.id] ?? ''}
-                                                onChange={e => setQty(prod.id, e.target.value, prod.quantity)}
-                                                onBlur={() => commitQty(prod.id, prod.quantity)}
+                                                onChange={(e) =>
+                                                    setQty(
+                                                        prod.id,
+                                                        e.target.value,
+                                                        prod.quantity
+                                                    )
+                                                }
+                                                onBlur={() =>
+                                                    commitQty(
+                                                        prod.id,
+                                                        prod.quantity
+                                                    )
+                                                }
                                             />
 
                                             <button
                                                 type="button"
-                                                onClick={() => addQty(prod.id, 1, prod.quantity)}
+                                                onClick={() =>
+                                                    addQty(
+                                                        prod.id,
+                                                        1,
+                                                        prod.quantity
+                                                    )
+                                                }
                                                 className="w-10 h-10 grid place-items-center bg-gray-100 rounded-md text-xl"
                                                 aria-label="Sumar"
-                                            >＋</button>
+                                            >
+                                                ＋
+                                            </button>
                                         </div>
                                     </div>
                                 ))}
@@ -714,7 +1068,8 @@ export default function Index() {
                         <div className="p-4 md:p-5 border-t sticky bottom-0 bg-white z-10">
                             <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 justify-between">
                                 <div className="text-base md:text-lg font-semibold">
-                                    Total: ${Number(totalSum).toLocaleString('es-CO')}
+                                    Total: $
+                                    {Number(totalSum).toLocaleString('es-CO')}
                                 </div>
                                 <button
                                     onClick={doCheckout}
@@ -735,128 +1090,233 @@ export default function Index() {
                     <form
                         onSubmit={submitPay}
                         className="
-              w-full max-w-xl bg-white shadow-xl flex flex-col
-              h-[100dvh] md:h-auto md:max-h-[90vh]
-              rounded-none md:rounded-2xl overflow-hidden
-            "
+                            w-full max-w-xl bg-white shadow-xl flex flex-col
+                            h-[100dvh] md:h-auto md:max-h-[90vh]
+                            rounded-none md:rounded-2xl overflow-hidden
+                        "
                     >
                         <div className="p-4 md:p-5 border-b sticky top-0 bg-white z-10 flex items-center justify-between">
                             <Dialog.Title className="text-base md:text-lg font-bold">
                                 {bulkFlow ? 'Pago Carrito' : 'Saldar Deuda'}
                             </Dialog.Title>
-                            <button onClick={() => setOpenPay(false)} type="button" className="text-gray-500 hover:text-gray-700">✕</button>
+                            <button
+                                onClick={() => setOpenPay(false)}
+                                type="button"
+                                className="text-gray-500 hover:text-gray-700"
+                            >
+                                ✕
+                            </button>
                         </div>
 
                         <div className="p-4 md:p-5 flex-1 overflow-y-auto space-y-4">
                             {bulkFlow && (
                                 <>
                                     <div>
-                                        <label className="block text-sm">ID Cliente (4 dígitos, opcional)</label>
+                                        <label className="block text-sm">
+                                            ID Cliente (4 dígitos,
+                                            opcional)
+                                        </label>
                                         <input
-                                            type="number" min="0" max="9999" step="1"
+                                            type="number"
+                                            min="0"
+                                            max="9999"
+                                            step="1"
                                             className="mt-1 w-full border px-3 py-2 rounded-md"
                                             value={customerId}
-                                            onChange={e => setCustomerId(e.target.value)}
+                                            onChange={(e) =>
+                                                setCustomerId(e.target.value)
+                                            }
                                             placeholder="0000"
                                         />
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm">Dealer</label>
+                                        <label className="block text-sm">
+                                            Dealer
+                                        </label>
                                         <select
                                             className="mt-1 w-full border px-3 py-2 rounded-md"
                                             value={deliveryId}
-                                            onChange={(e) => setDeliveryId(e.target.value)}
+                                            onChange={(e) =>
+                                                setDeliveryId(e.target.value)
+                                            }
                                         >
-                                            <option value="">— Sin dealer —</option>
-                                            {deliverers.map(u => (<option key={u.id} value={u.id}>{u.name}</option>))}
+                                            <option value="">
+                                                — Sin dealer —
+                                            </option>
+                                            {deliverers.map((u) => (
+                                                <option
+                                                    key={u.id}
+                                                    value={u.id}
+                                                >
+                                                    {u.name}
+                                                </option>
+                                            ))}
                                         </select>
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm">Distancia (km)</label>
+                                        <label className="block text-sm">
+                                            Distancia (km)
+                                        </label>
                                         <input
-                                            type="number" step="0.01" min="0"
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
                                             className="mt-1 w-full border px-3 py-2 rounded-md"
                                             value={km}
-                                            onChange={e => setKm(e.target.value)}
-                                            placeholder={deliveryId ? '0.00' : 'Selecciona un dealer'}
+                                            onChange={(e) =>
+                                                setKm(e.target.value)
+                                            }
+                                            placeholder={
+                                                deliveryId
+                                                    ? '0.00'
+                                                    : 'Selecciona un dealer'
+                                            }
                                             disabled={!deliveryId}
                                         />
-                                        <p className="text-xs text-gray-500 mt-1">Obligatorio solo si seleccionas un dealer.</p>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Obligatorio solo si
+                                            seleccionas un dealer.
+                                        </p>
                                     </div>
                                 </>
                             )}
 
                             <div>
-                                <label className="block text-sm">Método de pago</label>
+                                <label className="block text-sm">
+                                    Método de pago
+                                </label>
                                 <select
                                     className="mt-1 w-full border px-3 py-2 rounded-md"
                                     value={methodId ?? ''}
-                                    onChange={e => setMethodId(Number(e.target.value))}
+                                    onChange={(e) =>
+                                        setMethodId(
+                                            Number(e.target.value)
+                                        )
+                                    }
                                 >
-                                    {paymentMethods.map(m => (<option key={m.id} value={m.id}>{m.name}</option>))}
+                                    {paymentMethods.map((m) => (
+                                        <option key={m.id} value={m.id}>
+                                            {m.name}
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
 
                             <div>
                                 <label className="block text-sm">Total</label>
                                 <div className="mt-1 font-medium">
-                                    ${Number(bulkFlow ? totalSum : (selected?.total || 0)).toLocaleString('es-CO')}
+                                    $
+                                    {Number(
+                                        bulkFlow
+                                            ? totalSum
+                                            : selected?.total || 0
+                                    ).toLocaleString('es-CO')}
                                 </div>
                             </div>
 
                             {!bulkFlow && selected && (
                                 <div>
-                                    <label className="block text-sm">Ya pagado</label>
-                                    <div className="mt-1">${Number(pd.paid).toLocaleString('es-CO')}</div>
+                                    <label className="block text-sm">
+                                        Ya pagado
+                                    </label>
+                                    <div className="mt-1">
+                                        $
+                                        {Number(pd.paid).toLocaleString(
+                                            'es-CO'
+                                        )}
+                                    </div>
                                 </div>
                             )}
 
                             <div>
-                                <label htmlFor="pay" className="block text-sm">Monto a pagar ahora</label>
+                                <label
+                                    htmlFor="pay"
+                                    className="block text-sm"
+                                >
+                                    Monto a pagar ahora
+                                </label>
                                 <input
-                                    id="pay" type="number" step="0.01" min="0"
+                                    id="pay"
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
                                     className="mt-1 w-full border px-3 py-2 rounded-md"
                                     value={pd.pay}
-                                    onChange={e => setPd(d => ({ ...d, pay: parseFloat(e.target.value) || 0 }))}
+                                    onChange={(e) =>
+                                        setPd((d) => ({
+                                            ...d,
+                                            pay:
+                                                parseFloat(
+                                                    e.target.value
+                                                ) || 0,
+                                        }))
+                                    }
                                 />
                             </div>
 
                             <div>
-                                <label className="block text-sm">Referencia (opcional)</label>
+                                <label className="block text-sm">
+                                    Referencia (opcional)
+                                </label>
                                 <input
                                     type="text"
                                     className="mt-1 w-full border px-3 py-2 rounded-md"
                                     value={reference}
-                                    onChange={e => setReference(e.target.value)}
+                                    onChange={(e) =>
+                                        setReference(e.target.value)
+                                    }
                                     placeholder="# transacción / voucher"
                                 />
                             </div>
 
                             <div>
-                                <label className="block text-sm">Saldo pendiente:</label>
-                                <div className="mt-1">${Number(newDue).toLocaleString('es-CO')}</div>
+                                <label className="block text-sm">
+                                    Saldo pendiente:
+                                </label>
+                                <div className="mt-1">
+                                    $
+                                    {Number(newDue).toLocaleString(
+                                        'es-CO'
+                                    )}
+                                </div>
                             </div>
 
                             {newDue > 0 && (
                                 <>
                                     <div>
-                                        <label className="block text-sm">Nombre deudor</label>
+                                        <label className="block text-sm">
+                                            Nombre deudor
+                                        </label>
                                         <input
-                                            name="customer_name" type="text"
+                                            name="customer_name"
+                                            type="text"
                                             className="mt-1 w-full border px-3 py-2 rounded-md"
                                             value={pd.name}
-                                            onChange={e => setPd(d => ({ ...d, name: e.target.value }))}
+                                            onChange={(e) =>
+                                                setPd((d) => ({
+                                                    ...d,
+                                                    name: e.target.value,
+                                                }))
+                                            }
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm">Teléfono deudor</label>
+                                        <label className="block text-sm">
+                                            Teléfono deudor
+                                        </label>
                                         <input
-                                            name="customer_phone" type="text"
+                                            name="customer_phone"
+                                            type="text"
                                             className="mt-1 w-full border px-3 py-2 rounded-md"
                                             value={pd.phone}
-                                            onChange={e => setPd(d => ({ ...d, phone: e.target.value }))}
+                                            onChange={(e) =>
+                                                setPd((d) => ({
+                                                    ...d,
+                                                    phone: e.target.value,
+                                                }))
+                                            }
                                         />
                                     </div>
                                 </>
@@ -875,10 +1335,15 @@ export default function Index() {
                                 </button>
                                 <button
                                     type="submit"
-                                    className={`w-full md:w-auto px-4 py-3 md:py-2 text-white rounded-md ${submitting ? 'bg-gray-400' : 'bg-blue-600'}`}
+                                    className={`w-full md:w-auto px-4 py-3 md:py-2 text-white rounded-md ${submitting
+                                            ? 'bg-gray-400'
+                                            : 'bg-blue-600'
+                                        }`}
                                     disabled={submitting}
                                 >
-                                    {submitting ? 'Procesando…' : 'Confirmar'}
+                                    {submitting
+                                        ? 'Procesando…'
+                                        : 'Confirmar'}
                                 </button>
                             </div>
                         </div>

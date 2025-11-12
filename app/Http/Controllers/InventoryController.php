@@ -13,13 +13,31 @@ use Inertia\Inertia;
 
 class InventoryController extends Controller
 {
+    /**
+     * Forzamos cantidades tipo 1, 1.5, 2, 2.5...
+     */
+    private function normalizeHalfStep($value): float
+    {
+        if ($value === null || $value === '') {
+            return 0.0;
+        }
+
+        $num = (float) $value;
+        $num = round($num, 2);
+
+        if (fmod($num * 2, 1) !== 0.0) {
+            abort(422, 'La cantidad debe ser en pasos de 0.5');
+        }
+
+        return $num;
+    }
+
     public function index(Request $r)
     {
         // id de la ubicación principal (principal/main)
         $principalId = Location::whereIn('type', ['principal', 'main'])->value('id');
 
         $items = Inventory::query()
-            // unir todas las filas de stock (sin filtrar por ubicación)
             ->leftJoin('inventory_stocks as s', 's.inventory_id', '=', 'inventories.id')
             ->select([
                 'inventories.id',
@@ -27,19 +45,37 @@ class InventoryController extends Controller
                 'inventories.unit',
                 'inventories.purchase_price',
                 'inventories.sale_price',
-                // disponible total = SUM(on_hand - reserved) en TODAS las ubicaciones
+
+                // DECIMAL: SUM(...) ya devuelve decimal, COALESCE(...,0) lo deja como numérico
                 DB::raw('COALESCE(SUM(s.on_hand - s.reserved), 0) as available_total'),
-                // min del principal (si no existe, 0)
+
+                // mínimo de la sede principal (puede ser decimal también, ej 0.5)
                 DB::raw('COALESCE(MAX(CASE WHEN s.location_id = ' . ((int) $principalId) . ' THEN s.min_stock END), 0) as principal_min_stock'),
             ])
-            ->groupBy('inventories.id', 'inventories.name', 'inventories.unit', 'inventories.purchase_price', 'inventories.sale_price')
+            ->groupBy(
+                'inventories.id',
+                'inventories.name',
+                'inventories.unit',
+                'inventories.purchase_price',
+                'inventories.sale_price'
+            )
             ->orderBy('inventories.name')
             ->paginate(20)
             ->withQueryString();
 
+        // OJO:
+        // available_total y principal_min_stock salen como string numérica en MySQL.
+        // El front debe tratarlos como número o parseFloat.
+        // Si quieres castearlos en PHP antes de mandarlos al front:
+        $items->getCollection()->transform(function ($row) {
+            $row->available_total = (float) $row->available_total;
+            $row->principal_min_stock = (float) $row->principal_min_stock;
+            return $row;
+        });
+
         return Inertia::render('Inventories/Index', [
             'items' => $items,
-            'principalId' => $principalId, // tu componente lo usa al guardar el mínimo
+            'principalId' => $principalId,
         ]);
     }
 
@@ -55,31 +91,35 @@ class InventoryController extends Controller
         $purchase = (float) ($data['purchase_price'] ?? 0);
         $sale = (float) ($data['sale_price'] ?? 0);
 
-        // Stock inicial (solo en creación)
-        $initialQty = (int) ($data['quantity'] ?? 0);
-        $minStock = (int) ($data['min_stock'] ?? 0);
+        // DECIMAL: stock inicial puede ser fraccionario tipo 1.5
+        $initialQty = $this->normalizeHalfStep($data['quantity'] ?? 0);
 
-        // Asegura la ubicación principal (la crea si falta)
+        // mínimo permitido en principal (también lo hago decimal por consistencia)
+        $minStock = $this->normalizeHalfStep($data['min_stock'] ?? 0);
+
+        // Ubicación principal garantizada
         $principal = Location::firstOrCreate(
             ['type' => 'principal'],
-            ['name' => 'Principal'] // puedes ajustar el nombre
+            ['name' => 'Principal']
         );
 
         DB::transaction(function () use ($data, $purchase, $sale, $initialQty, $minStock, $principal) {
-            // Crea el producto (NO uses 'quantity' aquí si ya migraste a inventory_stock)
+            // Crear el producto
             $item = Inventory::create([
                 'name' => $data['name'],
                 'description' => $data['description'] ?? null,
                 'unit' => $data['unit'],
                 'purchase_price' => $purchase,
                 'sale_price' => $sale,
-                // 'quantity'     => 0, // solo si tu tabla inventories todavía tiene esa columna
+                // Si mantienes columna quantity en inventories y ahora es DECIMAL:
+                'quantity' => $initialQty,
             ]);
 
-            // Stock inicial en la ubicación principal
+            // Crear el stock inicial en la ubicación principal
             InventoryStock::create([
                 'inventory_id' => $item->id,
                 'location_id' => $principal->id,
+                // DECIMAL:
                 'on_hand' => $initialQty,
                 'reserved' => 0,
                 'min_stock' => $minStock,
@@ -93,74 +133,142 @@ class InventoryController extends Controller
 
     public function show(Inventory $inventory)
     {
-        return Inertia::render('Inventories/Show', ['item' => $inventory]);
+        // IMPORTANTE:
+        // Eager load el stock con decimales si quieres mostrar cantidades
+        $principalId = Location::whereIn('type', ['principal', 'main'])->value('id');
+
+        $stockRows = InventoryStock::where('inventory_id', $inventory->id)
+            ->get(['location_id', 'on_hand', 'reserved', 'min_stock'])
+            ->map(function ($row) {
+                $row->on_hand = (float) $row->on_hand;
+                $row->reserved = (float) $row->reserved;
+                $row->min_stock = (float) $row->min_stock;
+                return $row;
+            });
+
+        // total disponible global = SUM(on_hand - reserved)
+        $availableTotal = (float) InventoryStock::where('inventory_id', $inventory->id)
+            ->select(DB::raw('COALESCE(SUM(on_hand - reserved),0) as total'))
+            ->value('total');
+
+        // mínimo en principal
+        $principalMin = (float) InventoryStock::where('inventory_id', $inventory->id)
+            ->where('location_id', $principalId)
+            ->value('min_stock') ?? 0.0;
+
+        return Inertia::render('Inventories/Show', [
+            'item' => [
+                'id' => $inventory->id,
+                'name' => $inventory->name,
+                'description' => $inventory->description,
+                'unit' => $inventory->unit,
+                'purchase_price' => (float) $inventory->purchase_price,
+                'sale_price' => (float) $inventory->sale_price,
+                'quantity' => (float) $inventory->quantity, // DECIMAL
+            ],
+            'stocks' => $stockRows,
+            'available_total' => $availableTotal,
+            'principal_min_stock' => $principalMin,
+        ]);
     }
 
     public function edit(Inventory $inventory)
     {
-        return Inertia::render('Inventories/Edit', ['item' => $inventory]);
+        // mandamos los decimales casteados a float para que el front no los reciba como string
+        $inventory->purchase_price = (float) $inventory->purchase_price;
+        $inventory->sale_price = (float) $inventory->sale_price;
+        $inventory->quantity = (float) $inventory->quantity;
+
+        return Inertia::render('Inventories/Edit', [
+            'item' => $inventory,
+        ]);
     }
 
     public function update(InventoryRequest $req, Inventory $inventory)
     {
-        // 1) Actualiza datos del producto (sin tocar stock)
         $data = $req->validated();
+
+        $purchasePrice = (float) ($data['purchase_price'] ?? 0);
+        $salePrice = (float) ($data['sale_price'] ?? 0);
+
+        // 1) Actualizar datos base del producto
         $inventory->update([
             'name' => $data['name'],
             'description' => $data['description'] ?? null,
             'unit' => $data['unit'],
-            'purchase_price' => (float) ($data['purchase_price'] ?? 0),
-            'sale_price' => (float) ($data['sale_price'] ?? 0),
+            'purchase_price' => $purchasePrice,
+            'sale_price' => $salePrice,
+            // OJO: normalmente quantity en inventories ya no se toca directo
+            // porque el stock real vive en inventory_stocks, PERO
+            // si sigues usando ese campo como "stock global" lo podemos actualizar también:
+            // sólo si viene explícito en la request.
+            'quantity' => $req->has('quantity')
+                ? $this->normalizeHalfStep($req->input('quantity'))
+                : $inventory->quantity,
         ]);
 
-        // 2) Si vienen campos de stock, los procesamos
-        //    Espera: stock_op ∈ {'none','set','inc'}, stock_value (num), location_id (opcional)
-        $stockOp = $req->input('stock_op');        // none|set|inc
-        $stockValue = $req->input('stock_value');     // número (puede ser negativo si inc)
-        $locIdIn = $req->input('location_id');     // opcional
+        // 2) Manejo de stock por ubicación (opcional en el form)
+        // Espera:
+        //   stock_op   = none | set | inc
+        //   stock_value = "1.5", "-0.5", etc
+        //   location_id = id ubicación
+        $stockOp = $req->input('stock_op');       // none|set|inc
+        $stockValueR = $req->input('stock_value');    // string/num
+        $locIdIn = $req->input('location_id');    // opcional
 
-        if ($stockOp && $stockOp !== 'none' && $stockValue !== null && $stockValue !== '') {
-            // Ubicación por defecto: Principal
+        if ($stockOp && $stockOp !== 'none' && $stockValueR !== null && $stockValueR !== '') {
             $principalId = Location::whereIn('type', ['principal', 'main'])->value('id');
             $locationId = (int) ($locIdIn ?: $principalId);
 
-            DB::transaction(function () use ($inventory, $locationId, $stockOp, $stockValue) {
-                // Fila de stock por producto+ubicación
+            // normalizamos a paso de 0.5
+            $deltaOrSetValue = $this->normalizeHalfStep($stockValueR);
+
+            DB::transaction(function () use ($inventory, $locationId, $stockOp, $deltaOrSetValue) {
                 /** @var \App\Models\InventoryStock $row */
                 $row = InventoryStock::firstOrCreate(
                     ['inventory_id' => $inventory->id, 'location_id' => $locationId],
                     ['on_hand' => 0, 'reserved' => 0, 'min_stock' => 0]
                 );
 
-                $val = (int) $stockValue;
+                // casteo actual a float
+                $current = (float) $row->on_hand;
 
                 if ($stockOp === 'set') {
-                    $row->on_hand = max(0, $val);
+                    // set absoluto
+                    $row->on_hand = max(0, $deltaOrSetValue);
                 } elseif ($stockOp === 'inc') {
-                    // Ajuste relativo (acepta negativos). No baja de 0.
-                    $row->on_hand = max(0, (int) $row->on_hand + $val);
+                    // ajuste relativo (puede ser negativo si quieres descargar)
+                    $row->on_hand = max(0, round($current + $deltaOrSetValue, 2));
                 }
 
                 $row->save();
             });
         }
 
-        return redirect()->route('inventories.index')->with('success', 'Producto actualizado');
+        return redirect()
+            ->route('inventories.index')
+            ->with('success', 'Producto actualizado');
     }
 
     public function updateMinStock(Request $r, Inventory $inventory)
     {
         $data = $r->validate([
             'location_id' => ['required', 'exists:locations,id'],
-            'min_stock' => ['required', 'integer', 'min:0'],
+            // ahora permitimos .5
+            'min_stock' => ['required', 'numeric', 'regex:/^\d+(\.0|\.5)?$/'],
         ]);
 
         $row = InventoryStock::firstOrCreate(
-            ['inventory_id' => $inventory->id, 'location_id' => (int) $data['location_id']],
+            [
+                'inventory_id' => $inventory->id,
+                'location_id' => (int) $data['location_id'],
+            ],
             ['on_hand' => 0, 'reserved' => 0, 'min_stock' => 0]
         );
 
-        $row->update(['min_stock' => (int) $data['min_stock']]);
+        $row->update([
+            'min_stock' => $this->normalizeHalfStep($data['min_stock']),
+        ]);
 
         return back()->with('success', 'Mínimo actualizado.');
     }
@@ -168,10 +276,12 @@ class InventoryController extends Controller
     public function destroy(Inventory $inventory)
     {
         $inventory->delete();
-        return redirect()->route('inventories.index')->with('success', 'Producto eliminado');
+        return redirect()
+            ->route('inventories.index')
+            ->with('success', 'Producto eliminado');
     }
 
-    // Autocomplete para carrito de ventas
+    // Autocomplete para carrito / ventas
     public function search(Request $r)
     {
         $term = trim((string) $r->query('term', ''));
@@ -179,16 +289,12 @@ class InventoryController extends Controller
             return response()->json([]);
         }
 
-        // --- Origen para calcular stock ---
-        // 1) Si viene ?location_id desde el front, úsalo.
-        // 2) Si no, respalda con ?scope=(principal|user) o por defecto: loc del usuario -> principal.
         $locationIdParam = (int) $r->query('location_id', 0);
 
-        // Resuelvo ids comunes una sola vez
         $principalId = (int) Location::whereIn('type', ['principal', 'main'])->value('id');
         $userLocId = (int) Location::where('user_id', auth()->id())->value('id');
 
-        $scope = $r->query('scope'); // opcional
+        $scope = $r->query('scope');
         $scopedId = match ($scope) {
             'principal' => $principalId,
             'user' => $userLocId,
@@ -197,12 +303,10 @@ class InventoryController extends Controller
 
         $originId = $locationIdParam > 0 ? $locationIdParam : $scopedId;
 
-        // Seguridad: si no hay origen resolvible, devolvemos vacío
         if (!$originId) {
             return response()->json([]);
         }
 
-        // Límite opcional
         $limit = max(1, (int) $r->query('limit', 20));
 
         $rows = Inventory::query()
@@ -212,7 +316,6 @@ class InventoryController extends Controller
             })
             ->where(function ($q) use ($term) {
                 $q->where('inventories.name', 'like', "%{$term}%");
-                // Si el término es numérico, también permite buscar por ID exacto
                 if (ctype_digit($term)) {
                     $q->orWhere('inventories.id', (int) $term);
                 }
@@ -224,18 +327,17 @@ class InventoryController extends Controller
                 'inventories.name',
                 'inventories.unit',
                 'inventories.sale_price',
-                // Stock en el ORIGEN solicitado
                 DB::raw('COALESCE(s.on_hand - s.reserved, 0) as stock_origin'),
             ])
-            // compat: agrega "stock" con el mismo valor de stock_origin
             ->map(function ($row) {
-                $row->stock = $row->stock_origin;
+                // casteo decimal a float para el front
+                $row->sale_price = (float) $row->sale_price;
+                $row->stock_origin = (float) $row->stock_origin;
+                $row->stock = (float) $row->stock_origin; // compat
                 return $row;
             })
             ->values();
 
         return response()->json($rows);
     }
-
-
 }

@@ -21,12 +21,19 @@ export default function Index() {
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [editItemId, setEditItemId] = useState(null);
 
+    // ==== helpers ====
     const money = (v) =>
         v == null
             ? '—'
-            : `$${Number(v).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            : `$${Number(v).toLocaleString('es-CO', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            })}`;
 
-    const num = (v) => Number(v ?? 0).toLocaleString('es-CO', { maximumFractionDigits: 3 });
+    const num = (v) =>
+        Number(v ?? 0).toLocaleString('es-CO', {
+            maximumFractionDigits: 3,
+        });
 
     const toNullableNumber = (v) =>
         v === '' || v === null || v === undefined
@@ -40,8 +47,8 @@ export default function Index() {
         unit: 'pcs',
         purchase_price: '',
         sale_price: '',
-        quantity: 0,
-        min_stock: 0,
+        quantity: '',     // permite "", 1, 1.5
+        min_stock: '',    // permite "", 0.5, etc
     });
 
     const editForm = useForm({
@@ -50,9 +57,8 @@ export default function Index() {
         unit: 'pcs',
         purchase_price: '',
         sale_price: '',
-        // NUEVO: control de stock al editar
         stock_op: 'none',   // 'none' | 'set' | 'inc'
-        stock_value: '',    // string -> number
+        stock_value: '',    // string -> number (puede ser negativo si inc)
     });
 
     const deleteForm = useForm();
@@ -73,11 +79,23 @@ export default function Index() {
 
     function handleCreate(e) {
         e.preventDefault();
+
         createForm.setData((d) => ({
             ...d,
             purchase_price: toNullableNumber(d.purchase_price),
             sale_price: toNullableNumber(d.sale_price),
+
+            // cantidad inicial y min_stock pueden ser vacíos -> null
+            quantity:
+                d.quantity === ''
+                    ? null
+                    : Number(String(d.quantity).replace(',', '.')),
+            min_stock:
+                d.min_stock === ''
+                    ? null
+                    : Number(String(d.min_stock).replace(',', '.')),
         }));
+
         createForm.post('/inventories', {
             preserveScroll: true,
             onSuccess: () => {
@@ -89,18 +107,22 @@ export default function Index() {
 
     function handleUpdate(e) {
         e.preventDefault();
+
         editForm.setData((d) => ({
             ...d,
             purchase_price: toNullableNumber(d.purchase_price),
             sale_price: toNullableNumber(d.sale_price),
+
             // Enviar location_id para operar en Principal
             location_id: principalId || undefined,
+
             // stock_value numérico solo si aplica
             stock_value:
                 d.stock_op === 'none' || d.stock_value === ''
                     ? null
                     : Number(String(d.stock_value).replace(',', '.')),
         }));
+
         editForm.put(`/inventories/${editItemId}`, {
             preserveScroll: true,
             onSuccess: () => setIsEditOpen(false),
@@ -114,10 +136,16 @@ export default function Index() {
     }
 
     function saveMinStock(inventoryId, value) {
-        const minStock = Math.max(0, parseInt(value || 0, 10) || 0);
+        // value viene como string del input number
+        const parsed = value === '' ? 0 : Number(String(value).replace(',', '.'));
+        const minStock = parsed < 0 ? 0 : parsed;
+
         Inertia.patch(
             route('inventories.min_stock', inventoryId),
-            { min_stock: minStock, location_id: principalId || undefined },
+            {
+                min_stock: minStock,
+                location_id: principalId || undefined,
+            },
             {
                 preserveState: true,
                 preserveScroll: true,
@@ -131,7 +159,11 @@ export default function Index() {
         <AuthenticatedLayout
             auth={auth}
             errors={errors}
-            header={<h2 className="font-semibold text-xl text-gray-800 dark:text-gray-200">Inventarios</h2>}
+            header={
+                <h2 className="font-semibold text-xl text-gray-800 dark:text-gray-200">
+                    Inventarios
+                </h2>
+            }
         >
             <Head title="Inventarios" />
 
@@ -164,44 +196,79 @@ export default function Index() {
                     {/* Cards (sm-) */}
                     <div className="space-y-3 sm:hidden">
                         {rows.length === 0 && (
-                            <div className="rounded-lg border bg-white p-4 text-gray-500">Sin registros.</div>
+                            <div className="rounded-lg border bg-white p-4 text-gray-500">
+                                Sin registros.
+                            </div>
                         )}
 
                         {rows.map((item) => (
-                            <div key={item.id} className="rounded-xl border bg-white p-4 shadow-sm">
+                            <div
+                                key={item.id}
+                                className="rounded-xl border bg-white p-4 shadow-sm"
+                            >
                                 <div className="flex items-start justify-between gap-3">
                                     <div>
-                                        <h3 className="font-semibold text-gray-900">{item.name}</h3>
+                                        <h3 className="font-semibold text-gray-900">
+                                            {item.name}
+                                        </h3>
                                         <p className="text-xs text-gray-500 mt-0.5">
-                                            Unidad: <span className="uppercase">{item.unit}</span>
+                                            Unidad:{' '}
+                                            <span className="uppercase">
+                                                {item.unit}
+                                            </span>
                                         </p>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-xs text-gray-500">Disponible</p>
-                                        <p className="font-semibold">{num(item.available_total)}</p>
+                                        <p className="text-xs text-gray-500">
+                                            Disponible
+                                        </p>
+                                        <p className="font-semibold">
+                                            {num(item.available_total)}
+                                        </p>
                                     </div>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-3 mt-3">
                                     <div className="rounded-lg bg-gray-50 p-3">
-                                        <p className="text-xs text-gray-500">Precio compra</p>
-                                        <p className="font-medium">{money(item.purchase_price)}</p>
+                                        <p className="text-xs text-gray-500">
+                                            Precio compra
+                                        </p>
+                                        <p className="font-medium">
+                                            {money(item.purchase_price)}
+                                        </p>
                                     </div>
                                     <div className="rounded-lg bg-gray-50 p-3">
-                                        <p className="text-xs text-gray-500">Precio venta</p>
-                                        <p className="font-medium">{money(item.sale_price)}</p>
+                                        <p className="text-xs text-gray-500">
+                                            Precio venta
+                                        </p>
+                                        <p className="font-medium">
+                                            {money(item.sale_price)}
+                                        </p>
                                     </div>
                                 </div>
 
                                 <div className="mt-3">
-                                    <label className="text-xs text-gray-500">Mín (Principal)</label>
+                                    <label className="text-xs text-gray-500">
+                                        Mín (Principal)
+                                    </label>
                                     <input
                                         type="number"
                                         min="0"
-                                        defaultValue={item.principal_min_stock ?? 0}
+                                        step="0.5"
+                                        defaultValue={
+                                            item.principal_min_stock ?? 0
+                                        }
                                         className="mt-1 w-full rounded-lg border px-3 py-2"
-                                        onBlur={(e) => saveMinStock(item.id, e.target.value)}
-                                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                                        onBlur={(e) =>
+                                            saveMinStock(
+                                                item.id,
+                                                e.target.value
+                                            )
+                                        }
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter')
+                                                e.currentTarget.blur();
+                                        }}
                                     />
                                 </div>
 
@@ -228,52 +295,98 @@ export default function Index() {
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
-                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
-                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unidad</th>
-                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Disponible (total)</th>
-                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mín (Principal)</th>
-                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Precio compra</th>
-                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Precio venta</th>
-                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Nombre
+                                    </th>
+                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Unidad
+                                    </th>
+                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Disponible (total)
+                                    </th>
+                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Mín (Principal)
+                                    </th>
+                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Precio compra
+                                    </th>
+                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Precio venta
+                                    </th>
+                                    <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Acciones
+                                    </th>
                                 </tr>
                             </thead>
 
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {rows.length === 0 && (
                                     <tr>
-                                        <td className="px-6 py-4 text-sm text-gray-500" colSpan={7}>
+                                        <td
+                                            className="px-6 py-4 text-sm text-gray-500"
+                                            colSpan={7}
+                                        >
                                             Sin registros.
                                         </td>
                                     </tr>
                                 )}
 
                                 {rows.map((item) => (
-                                    <tr key={item.id} className="hover:bg-gray-50">
-                                        <td className="px-4 lg:px-6 py-4 whitespace-nowrap">{item.name}</td>
-                                        <td className="px-4 lg:px-6 py-4 whitespace-nowrap uppercase">{item.unit}</td>
-                                        <td className="px-4 lg:px-6 py-4 whitespace-nowrap">{num(item.available_total)}</td>
+                                    <tr
+                                        key={item.id}
+                                        className="hover:bg-gray-50"
+                                    >
+                                        <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
+                                            {item.name}
+                                        </td>
+                                        <td className="px-4 lg:px-6 py-4 whitespace-nowrap uppercase">
+                                            {item.unit}
+                                        </td>
+                                        <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
+                                            {num(item.available_total)}
+                                        </td>
                                         <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
                                             <input
                                                 type="number"
                                                 min="0"
-                                                defaultValue={item.principal_min_stock ?? 0}
+                                                step="0.5"
+                                                defaultValue={
+                                                    item.principal_min_stock ??
+                                                    0
+                                                }
                                                 className="w-24 rounded border px-2 py-1"
-                                                onBlur={(e) => saveMinStock(item.id, e.target.value)}
-                                                onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                                                onBlur={(e) =>
+                                                    saveMinStock(
+                                                        item.id,
+                                                        e.target.value
+                                                    )
+                                                }
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter')
+                                                        e.currentTarget.blur();
+                                                }}
                                             />
                                         </td>
-                                        <td className="px-4 lg:px-6 py-4 whitespace-nowrap">{money(item.purchase_price)}</td>
-                                        <td className="px-4 lg:px-6 py-4 whitespace-nowrap">{money(item.sale_price)}</td>
+                                        <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
+                                            {money(item.purchase_price)}
+                                        </td>
+                                        <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
+                                            {money(item.sale_price)}
+                                        </td>
                                         <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
                                             <div className="flex flex-wrap gap-2">
                                                 <button
-                                                    onClick={() => openEdit(item)}
+                                                    onClick={() =>
+                                                        openEdit(item)
+                                                    }
                                                     className="text-indigo-700 px-3 py-1.5 rounded border border-indigo-200 hover:bg-indigo-50"
                                                 >
                                                     Editar
                                                 </button>
                                                 <button
-                                                    onClick={() => handleDelete(item.id)}
+                                                    onClick={() =>
+                                                        handleDelete(item.id)
+                                                    }
                                                     className="text-red-700 px-3 py-1.5 rounded border border-red-200 hover:bg-red-50"
                                                 >
                                                     Eliminar
@@ -299,9 +412,17 @@ export default function Index() {
                                         href={link.url || '#'}
                                         preserveScroll
                                         className={`px-3 py-1.5 rounded-lg border text-sm
-                      ${link.active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200'}
-                      ${!link.url ? 'opacity-50 pointer-events-none' : ''}`}
-                                        dangerouslySetInnerHTML={{ __html: link.label }}
+                      ${link.active
+                                                ? 'bg-blue-600 text-white border-blue-600'
+                                                : 'bg-white text-gray-700 border-gray-200'
+                                            }
+                      ${!link.url
+                                                ? 'opacity-50 pointer-events-none'
+                                                : ''
+                                            }`}
+                                        dangerouslySetInnerHTML={{
+                                            __html: link.label,
+                                        }}
                                     />
                                 ))}
                             </div>
@@ -311,100 +432,234 @@ export default function Index() {
             </div>
 
             {/* ===== Modal Create ===== */}
-            <Dialog open={isCreateOpen} onClose={() => setIsCreateOpen(false)} className="relative z-50">
+            <Dialog
+                open={isCreateOpen}
+                onClose={() => setIsCreateOpen(false)}
+                className="relative z-50"
+            >
                 <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
                 <div className="fixed inset-0 p-4 sm:p-6 md:p-8 flex items-center justify-center">
                     <div className="w-full max-w-md sm:max-w-lg md:max-w-xl lg:max-w-2xl bg-white rounded-2xl shadow-xl">
                         <div className="p-4 sm:p-6 md:p-8">
-                            <Dialog.Title className="text-lg sm:text-xl font-bold mb-4">Nuevo Inventario</Dialog.Title>
+                            <Dialog.Title className="text-lg sm:text-xl font-bold mb-4">
+                                Nuevo Inventario
+                            </Dialog.Title>
 
-                            <form onSubmit={handleCreate} className="space-y-4">
+                            <form
+                                onSubmit={handleCreate}
+                                className="space-y-4"
+                            >
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div className="sm:col-span-2">
-                                        <label htmlFor="create-name" className="block text-sm font-medium text-gray-700">Nombre</label>
+                                        <label
+                                            htmlFor="create-name"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Nombre
+                                        </label>
                                         <input
                                             id="create-name"
                                             className="mt-1 w-full rounded-lg border px-3 py-2"
                                             value={createForm.data.name}
-                                            onChange={(e) => createForm.setData('name', e.target.value)}
+                                            onChange={(e) =>
+                                                createForm.setData(
+                                                    'name',
+                                                    e.target.value
+                                                )
+                                            }
                                         />
-                                        {createForm.errors.name && <p className="text-red-600 text-xs mt-1">{createForm.errors.name}</p>}
+                                        {createForm.errors.name && (
+                                            <p className="text-red-600 text-xs mt-1">
+                                                {createForm.errors.name}
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div className="sm:col-span-2">
-                                        <label htmlFor="create-description" className="block text-sm font-medium text-gray-700">Descripción</label>
+                                        <label
+                                            htmlFor="create-description"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Descripción
+                                        </label>
                                         <textarea
                                             id="create-description"
                                             className="mt-1 w-full rounded-lg border px-3 py-2"
-                                            value={createForm.data.description}
-                                            onChange={(e) => createForm.setData('description', e.target.value)}
+                                            value={
+                                                createForm.data.description
+                                            }
+                                            onChange={(e) =>
+                                                createForm.setData(
+                                                    'description',
+                                                    e.target.value
+                                                )
+                                            }
                                         />
-                                        {createForm.errors.description && <p className="text-red-600 text-xs mt-1">{createForm.errors.description}</p>}
+                                        {createForm.errors.description && (
+                                            <p className="text-red-600 text-xs mt-1">
+                                                {createForm.errors.description}
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div>
-                                        <label htmlFor="create-unit" className="block text-sm font-medium text-gray-700">Unidad</label>
+                                        <label
+                                            htmlFor="create-unit"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Unidad
+                                        </label>
                                         <select
                                             id="create-unit"
                                             className="mt-1 w-full rounded-lg border px-3 py-2"
                                             value={createForm.data.unit}
-                                            onChange={(e) => createForm.setData('unit', e.target.value)}
+                                            onChange={(e) =>
+                                                createForm.setData(
+                                                    'unit',
+                                                    e.target.value
+                                                )
+                                            }
                                         >
-                                            <option value="pcs">Piezas (pcs)</option>
-                                            <option value="gr">Gramos (gr)</option>
+                                            <option value="pcs">
+                                                Piezas (pcs)
+                                            </option>
+                                            <option value="gr">
+                                                Gramos (gr)
+                                            </option>
                                         </select>
-                                        {createForm.errors.unit && <p className="text-red-600 text-xs mt-1">{createForm.errors.unit}</p>}
+                                        {createForm.errors.unit && (
+                                            <p className="text-red-600 text-xs mt-1">
+                                                {createForm.errors.unit}
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div>
-                                        <label htmlFor="create-quantity" className="block text-sm font-medium text-gray-700">Stock inicial</label>
+                                        <label
+                                            htmlFor="create-quantity"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Stock inicial
+                                        </label>
                                         <input
-                                            type="number" min="0" id="create-quantity"
+                                            type="number"
+                                            min="0"
+                                            step="0.5"
+                                            id="create-quantity"
                                             className="mt-1 w-full rounded-lg border px-3 py-2"
                                             value={createForm.data.quantity}
-                                            onChange={(e) => createForm.setData('quantity', e.target.value)}
+                                            onChange={(e) =>
+                                                createForm.setData(
+                                                    'quantity',
+                                                    e.target.value
+                                                )
+                                            }
                                         />
-                                        {createForm.errors.quantity && <p className="text-red-600 text-xs mt-1">{createForm.errors.quantity}</p>}
+                                        {createForm.errors.quantity && (
+                                            <p className="text-red-600 text-xs mt-1">
+                                                {createForm.errors.quantity}
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div>
-                                        <label htmlFor="create-min" className="block text-sm font-medium text-gray-700">Mín (Principal)</label>
+                                        <label
+                                            htmlFor="create-min"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Mín (Principal)
+                                        </label>
                                         <input
-                                            type="number" min="0" id="create-min"
+                                            type="number"
+                                            min="0"
+                                            step="0.5"
+                                            id="create-min"
                                             className="mt-1 w-full rounded-lg border px-3 py-2"
                                             value={createForm.data.min_stock}
-                                            onChange={(e) => createForm.setData('min_stock', e.target.value)}
+                                            onChange={(e) =>
+                                                createForm.setData(
+                                                    'min_stock',
+                                                    e.target.value
+                                                )
+                                            }
                                         />
-                                        {createForm.errors.min_stock && <p className="text-red-600 text-xs mt-1">{createForm.errors.min_stock}</p>}
+                                        {createForm.errors.min_stock && (
+                                            <p className="text-red-600 text-xs mt-1">
+                                                {createForm.errors.min_stock}
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div>
-                                        <label htmlFor="create-purchase" className="block text-sm font-medium text-gray-700">Precio compra (opcional)</label>
+                                        <label
+                                            htmlFor="create-purchase"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Precio compra (opcional)
+                                        </label>
                                         <input
-                                            type="number" step="0.01" min="0" placeholder="Opcional"
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            placeholder="Opcional"
                                             id="create-purchase"
                                             className="mt-1 w-full rounded-lg border px-3 py-2"
-                                            value={createForm.data.purchase_price}
-                                            onChange={(e) => createForm.setData('purchase_price', e.target.value)}
+                                            value={
+                                                createForm.data.purchase_price
+                                            }
+                                            onChange={(e) =>
+                                                createForm.setData(
+                                                    'purchase_price',
+                                                    e.target.value
+                                                )
+                                            }
                                         />
-                                        {createForm.errors.purchase_price && <p className="text-red-600 text-xs mt-1">{createForm.errors.purchase_price}</p>}
+                                        {createForm.errors.purchase_price && (
+                                            <p className="text-red-600 text-xs mt-1">
+                                                {
+                                                    createForm.errors
+                                                        .purchase_price
+                                                }
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div>
-                                        <label htmlFor="create-sale" className="block text-sm font-medium text-gray-700">Precio venta (opcional)</label>
+                                        <label
+                                            htmlFor="create-sale"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Precio venta (opcional)
+                                        </label>
                                         <input
-                                            type="number" step="0.01" min="0" placeholder="Opcional"
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            placeholder="Opcional"
                                             id="create-sale"
                                             className="mt-1 w-full rounded-lg border px-3 py-2"
                                             value={createForm.data.sale_price}
-                                            onChange={(e) => createForm.setData('sale_price', e.target.value)}
+                                            onChange={(e) =>
+                                                createForm.setData(
+                                                    'sale_price',
+                                                    e.target.value
+                                                )
+                                            }
                                         />
-                                        {createForm.errors.sale_price && <p className="text-red-600 text-xs mt-1">{createForm.errors.sale_price}</p>}
+                                        {createForm.errors.sale_price && (
+                                            <p className="text-red-600 text-xs mt-1">
+                                                {createForm.errors.sale_price}
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
 
                                 <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
-                                    <button type="button" onClick={() => setIsCreateOpen(false)} className="px-4 py-2 rounded-lg border">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsCreateOpen(false)}
+                                        className="px-4 py-2 rounded-lg border"
+                                    >
                                         Cancelar
                                     </button>
                                     <button
@@ -412,7 +667,9 @@ export default function Index() {
                                         disabled={createForm.processing}
                                         className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700"
                                     >
-                                        {createForm.processing ? 'Guardando…' : 'Guardar'}
+                                        {createForm.processing
+                                            ? 'Guardando…'
+                                            : 'Guardar'}
                                     </button>
                                 </div>
                             </form>
@@ -422,119 +679,267 @@ export default function Index() {
             </Dialog>
 
             {/* ===== Modal Edit ===== */}
-            <Dialog open={isEditOpen} onClose={() => setIsEditOpen(false)} className="relative z-50">
+            <Dialog
+                open={isEditOpen}
+                onClose={() => setIsEditOpen(false)}
+                className="relative z-50"
+            >
                 <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
                 <div className="fixed inset-0 p-4 sm:p-6 md:p-8 flex items-center justify-center">
                     <div className="w-full max-w-md sm:max-w-lg md:max-w-xl lg:max-w-2xl bg-white rounded-2xl shadow-xl">
                         <div className="p-4 sm:p-6 md:p-8">
-                            <Dialog.Title className="text-lg sm:text-xl font-bold mb-4">Editar Inventario</Dialog.Title>
+                            <Dialog.Title className="text-lg sm:text-xl font-bold mb-4">
+                                Editar Inventario
+                            </Dialog.Title>
 
-                            <form onSubmit={handleUpdate} className="space-y-4">
+                            <form
+                                onSubmit={handleUpdate}
+                                className="space-y-4"
+                            >
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div className="sm:col-span-2">
-                                        <label htmlFor="edit-name" className="block text-sm font-medium text-gray-700">Nombre</label>
+                                        <label
+                                            htmlFor="edit-name"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Nombre
+                                        </label>
                                         <input
                                             id="edit-name"
                                             className="mt-1 w-full rounded-lg border px-3 py-2"
                                             value={editForm.data.name}
-                                            onChange={(e) => editForm.setData('name', e.target.value)}
+                                            onChange={(e) =>
+                                                editForm.setData(
+                                                    'name',
+                                                    e.target.value
+                                                )
+                                            }
                                         />
-                                        {editForm.errors.name && <p className="text-red-600 text-xs mt-1">{editForm.errors.name}</p>}
+                                        {editForm.errors.name && (
+                                            <p className="text-red-600 text-xs mt-1">
+                                                {editForm.errors.name}
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div className="sm:col-span-2">
-                                        <label htmlFor="edit-description" className="block text-sm font-medium text-gray-700">Descripción</label>
+                                        <label
+                                            htmlFor="edit-description"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Descripción
+                                        </label>
                                         <textarea
                                             id="edit-description"
                                             className="mt-1 w-full rounded-lg border px-3 py-2"
                                             value={editForm.data.description}
-                                            onChange={(e) => editForm.setData('description', e.target.value)}
+                                            onChange={(e) =>
+                                                editForm.setData(
+                                                    'description',
+                                                    e.target.value
+                                                )
+                                            }
                                         />
-                                        {editForm.errors.description && <p className="text-red-600 text-xs mt-1">{editForm.errors.description}</p>}
+                                        {editForm.errors.description && (
+                                            <p className="text-red-600 text-xs mt-1">
+                                                {editForm.errors.description}
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div>
-                                        <label htmlFor="edit-unit" className="block text-sm font-medium text-gray-700">Unidad</label>
+                                        <label
+                                            htmlFor="edit-unit"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Unidad
+                                        </label>
                                         <select
                                             id="edit-unit"
                                             className="mt-1 w-full rounded-lg border px-3 py-2"
                                             value={editForm.data.unit}
-                                            onChange={(e) => editForm.setData('unit', e.target.value)}
+                                            onChange={(e) =>
+                                                editForm.setData(
+                                                    'unit',
+                                                    e.target.value
+                                                )
+                                            }
                                         >
-                                            <option value="pcs">Piezas (pcs)</option>
-                                            <option value="gr">Gramos (gr)</option>
+                                            <option value="pcs">
+                                                Piezas (pcs)
+                                            </option>
+                                            <option value="gr">
+                                                Gramos (gr)
+                                            </option>
                                         </select>
-                                        {editForm.errors.unit && <p className="text-red-600 text-xs mt-1">{editForm.errors.unit}</p>}
+                                        {editForm.errors.unit && (
+                                            <p className="text-red-600 text-xs mt-1">
+                                                {editForm.errors.unit}
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div>
-                                        <label htmlFor="edit-purchase" className="block text-sm font-medium text-gray-700">Precio compra (opcional)</label>
+                                        <label
+                                            htmlFor="edit-purchase"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Precio compra (opcional)
+                                        </label>
                                         <input
-                                            type="number" step="0.01" min="0" placeholder="Opcional"
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            placeholder="Opcional"
                                             id="edit-purchase"
                                             className="mt-1 w-full rounded-lg border px-3 py-2"
                                             value={editForm.data.purchase_price}
-                                            onChange={(e) => editForm.setData('purchase_price', e.target.value)}
+                                            onChange={(e) =>
+                                                editForm.setData(
+                                                    'purchase_price',
+                                                    e.target.value
+                                                )
+                                            }
                                         />
-                                        {editForm.errors.purchase_price && <p className="text-red-600 text-xs mt-1">{editForm.errors.purchase_price}</p>}
+                                        {editForm.errors.purchase_price && (
+                                            <p className="text-red-600 text-xs mt-1">
+                                                {
+                                                    editForm.errors
+                                                        .purchase_price
+                                                }
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div>
-                                        <label htmlFor="edit-sale" className="block text-sm font-medium text-gray-700">Precio venta (opcional)</label>
+                                        <label
+                                            htmlFor="edit-sale"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Precio venta (opcional)
+                                        </label>
                                         <input
-                                            type="number" step="0.01" min="0" placeholder="Opcional"
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            placeholder="Opcional"
                                             id="edit-sale"
                                             className="mt-1 w-full rounded-lg border px-3 py-2"
                                             value={editForm.data.sale_price}
-                                            onChange={(e) => editForm.setData('sale_price', e.target.value)}
+                                            onChange={(e) =>
+                                                editForm.setData(
+                                                    'sale_price',
+                                                    e.target.value
+                                                )
+                                            }
                                         />
-                                        {editForm.errors.sale_price && <p className="text-red-600 text-xs mt-1">{editForm.errors.sale_price}</p>}
+                                        {editForm.errors.sale_price && (
+                                            <p className="text-red-600 text-xs mt-1">
+                                                {editForm.errors.sale_price}
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
 
-                                {/* NUEVO: bloque de stock */}
+                                {/* BLOQUE STOCK */}
                                 <div className="sm:col-span-2 rounded-lg border p-3">
-                                    <p className="text-sm font-medium text-gray-700 mb-2">Stock (Principal)</p>
+                                    <p className="text-sm font-medium text-gray-700 mb-2">
+                                        Stock (Principal)
+                                    </p>
 
                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                         <div>
-                                            <label className="block text-xs text-gray-500 mb-1">Operación</label>
+                                            <label className="block text-xs text-gray-500 mb-1">
+                                                Operación
+                                            </label>
                                             <select
                                                 className="w-full rounded-lg border px-3 py-2"
                                                 value={editForm.data.stock_op}
-                                                onChange={(e) => editForm.setData('stock_op', e.target.value)}
+                                                onChange={(e) =>
+                                                    editForm.setData(
+                                                        'stock_op',
+                                                        e.target.value
+                                                    )
+                                                }
                                             >
-                                                <option value="none">No cambiar</option>
-                                                <option value="set">Establecer</option>
-                                                <option value="inc">Ajuste (+/–)</option>
+                                                <option value="none">
+                                                    No cambiar
+                                                </option>
+                                                <option value="set">
+                                                    Establecer
+                                                </option>
+                                                <option value="inc">
+                                                    Ajuste (+/–)
+                                                </option>
                                             </select>
                                         </div>
 
                                         <div>
                                             <label className="block text-xs text-gray-500 mb-1">
-                                                {editForm.data.stock_op === 'set' ? 'Nuevo stock' : 'Ajuste (+/–)'}
+                                                {editForm.data.stock_op ===
+                                                    'set'
+                                                    ? 'Nuevo stock'
+                                                    : 'Ajuste (+/–)'}
                                             </label>
                                             <input
                                                 type="number"
+                                                step="0.5"
+                                                min={
+                                                    editForm.data.stock_op ===
+                                                        'set'
+                                                        ? '0'
+                                                        : undefined
+                                                }
                                                 className="w-full rounded-lg border px-3 py-2"
-                                                placeholder={editForm.data.stock_op === 'set' ? 'e.g. 100' : 'e.g. 5 o -3'}
-                                                value={editForm.data.stock_value}
-                                                onChange={(e) => editForm.setData('stock_value', e.target.value)}
-                                                disabled={editForm.data.stock_op === 'none'}
+                                                placeholder={
+                                                    editForm.data.stock_op ===
+                                                        'set'
+                                                        ? 'e.g. 10.5'
+                                                        : 'e.g. 0.5 o -0.5'
+                                                }
+                                                value={
+                                                    editForm.data.stock_value
+                                                }
+                                                onChange={(e) =>
+                                                    editForm.setData(
+                                                        'stock_value',
+                                                        e.target.value
+                                                    )
+                                                }
+                                                disabled={
+                                                    editForm.data.stock_op ===
+                                                    'none'
+                                                }
                                             />
+                                            {editForm.errors.stock_value && (
+                                                <p className="text-red-600 text-xs mt-1">
+                                                    {
+                                                        editForm.errors
+                                                            .stock_value
+                                                    }
+                                                </p>
+                                            )}
                                         </div>
 
                                         <div className="flex items-end">
                                             <p className="text-xs text-gray-500">
-                                                Se aplica en <strong>Principal</strong>{' '}
-                                                {principalId ? `(ID ${principalId})` : ''}.
+                                                Se aplica en{' '}
+                                                <strong>Principal</strong>{' '}
+                                                {principalId
+                                                    ? `(ID ${principalId})`
+                                                    : ''}
+                                                .
                                             </p>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
-                                    <button type="button" onClick={() => setIsEditOpen(false)} className="px-4 py-2 rounded-lg border">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsEditOpen(false)}
+                                        className="px-4 py-2 rounded-lg border"
+                                    >
                                         Cancelar
                                     </button>
                                     <button
@@ -542,7 +947,9 @@ export default function Index() {
                                         disabled={editForm.processing}
                                         className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700"
                                     >
-                                        {editForm.processing ? 'Actualizando…' : 'Actualizar'}
+                                        {editForm.processing
+                                            ? 'Actualizando…'
+                                            : 'Actualizar'}
                                     </button>
                                 </div>
                             </form>

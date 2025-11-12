@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\BalanceController;
 use App\Http\Controllers\CashController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\InventoryController;
@@ -89,13 +90,22 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
         Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
         // routes/web.php
-        Route::post('/sales/{sale}/cancel', [\App\Http\Controllers\SaleController::class, 'cancel'])
+        Route::post('/sales/{sale}/cancel', [SaleController::class, 'cancel'])
             ->name('sales.cancel');
 
         //Administracion de cash controller
         Route::get('/cash', [CashController::class, 'index'])->name('cash.index');
         Route::post('/cash/transfer', [CashController::class, 'transfer'])->name('cash.transfer');
         Route::post('/cash/pickup', [CashController::class, 'pickup'])->name('cash.pickup');
+
+        //Balances
+        Route::get('/balances', [BalanceController::class, 'index'])
+            ->name('balances.index');
+
+        Route::post('/balances/{dealerLocationId}/settle', [BalanceController::class, 'settleDealer'])
+            ->name('balances.settle');
+
+
 
     });
 
