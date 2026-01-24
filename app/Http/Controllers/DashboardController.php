@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Payment;
 use App\Models\Sale;
+use App\Models\Location;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +21,12 @@ class DashboardController extends Controller
      */
     public function index(Request $request)
     {
+        $user = auth()->user();
+        $isDealer = $user && method_exists($user, 'hasRole') && $user->hasRole('dealer');
+        $dealerLocId = $isDealer
+            ? Location::where('type', 'dealer')->where('user_id', $user->id)->value('id')
+            : null;
+
         // ====== Rango de fechas (por defecto últimos 30 días) ======
         $fromStr = $request->query('from');
         $toStr = $request->query('to');
@@ -38,6 +45,14 @@ class DashboardController extends Controller
         $paidSalesIdsSub = DB::table('sales as s')
             ->where('s.status', 'pagado')
             ->whereBetween('s.created_at', [$fromDB, $toDB])
+            ->when($isDealer, function ($q) use ($user, $dealerLocId) {
+                $q->where(function ($qq) use ($user, $dealerLocId) {
+                    $qq->where('s.delivery_id', $user->id);
+                    if ($dealerLocId) {
+                        $qq->orWhere('s.location_id', $dealerLocId);
+                    }
+                });
+            })
             ->select('s.id');
 
         // ---------------- KPIs ----------------
@@ -54,6 +69,14 @@ class DashboardController extends Controller
             ->join('sales as s', 's.id', '=', 'p.sale_id')
             ->where('s.status', 'pagado')
             ->whereBetween('p.paid_at', [$fromDB, $toDB])
+            ->when($isDealer, function ($q) use ($user, $dealerLocId) {
+                $q->where(function ($qq) use ($user, $dealerLocId) {
+                    $qq->where('s.delivery_id', $user->id);
+                    if ($dealerLocId) {
+                        $qq->orWhere('s.location_id', $dealerLocId);
+                    }
+                });
+            })
             ->sum('p.amount') ?? 0);
 
         $kpiTicket = $kpiSalesCount > 0 ? round($kpiSalesSum / $kpiSalesCount, 2) : 0.0;
@@ -73,6 +96,14 @@ class DashboardController extends Controller
             ->join('sales as s', 's.id', '=', 'p.sale_id')
             ->where('s.status', 'pagado')
             ->whereBetween('p.paid_at', [$fromDB, $toDB])
+            ->when($isDealer, function ($q) use ($user, $dealerLocId) {
+                $q->where(function ($qq) use ($user, $dealerLocId) {
+                    $qq->where('s.delivery_id', $user->id);
+                    if ($dealerLocId) {
+                        $qq->orWhere('s.location_id', $dealerLocId);
+                    }
+                });
+            })
             ->selectRaw('DATE(p.paid_at) as d, COALESCE(SUM(p.amount),0) as paid_total')
             ->groupBy('d')
             ->orderBy('d')
@@ -116,23 +147,21 @@ class DashboardController extends Controller
                 return $r;
             });
 
-        // ---------------- Top ubicaciones (por monto) ----------------
-        // Detecta si sale_items tiene la columna location_id
-        $hasItemLocation = Schema::hasColumn('sale_items', 'location_id');
-
-        if ($hasItemLocation) {
-            // Caso 1: existe si.location_id → usa COALESCE(si.location_id, s.location_id)
-            $topLocations = DB::table('sale_items as si')
+        // ---------------- Ventas por ubicación (monto) ----------------
+        if (Schema::hasTable('inventory_moves')) {
+            // Usa movimientos para ubicar la venta por línea
+            $topLocations = DB::table('inventory_moves as im')
+                ->join('sale_items as si', 'si.id', '=', 'im.sale_item_id')
                 ->join('sales as s', 's.id', '=', 'si.sale_id')
-                ->leftJoin('locations as l_si', 'l_si.id', '=', 'si.location_id')
-                ->leftJoin('locations as l_s', 'l_s.id', '=', 's.location_id')
+                ->leftJoin('locations as l', 'l.id', '=', 'im.location_id')
                 ->whereIn('s.id', $paidSalesIdsSub)
+                ->where('im.reason', 'SALE')
                 ->groupBy('loc_id', 'name')
                 ->orderByDesc('amount')
                 ->limit(10)
                 ->get([
-                    DB::raw('COALESCE(si.location_id, s.location_id) as loc_id'),
-                    DB::raw("COALESCE(l_si.name, l_s.name, 'Sin ubicación') as name"),
+                    DB::raw('im.location_id as loc_id'),
+                    DB::raw("COALESCE(l.name, 'Sin ubicación') as name"),
                     DB::raw('COALESCE(SUM(si.total),0) as amount'),
                 ])
                 ->map(function ($r) {
@@ -140,18 +169,17 @@ class DashboardController extends Controller
                     return $r;
                 });
         } else {
-            // Caso 2: NO existe si.location_id → usa SOLO s.location_id
-            $topLocations = DB::table('sale_items as si')
-                ->join('sales as s', 's.id', '=', 'si.sale_id')
-                ->leftJoin('locations as l_s', 'l_s.id', '=', 's.location_id')
+            // Fallback: usa location_id de la venta
+            $topLocations = DB::table('sales as s')
+                ->leftJoin('locations as l', 'l.id', '=', 's.location_id')
                 ->whereIn('s.id', $paidSalesIdsSub)
                 ->groupBy('loc_id', 'name')
                 ->orderByDesc('amount')
                 ->limit(10)
                 ->get([
                     DB::raw('s.location_id as loc_id'),
-                    DB::raw("COALESCE(l_s.name, 'Sin ubicación') as name"),
-                    DB::raw('COALESCE(SUM(si.total),0) as amount'),
+                    DB::raw("COALESCE(l.name, 'Sin ubicación') as name"),
+                    DB::raw('COALESCE(SUM(s.total),0) as amount'),
                 ])
                 ->map(function ($r) {
                     $r->amount = (float) ($r->amount ?? 0);
@@ -165,6 +193,14 @@ class DashboardController extends Controller
             ->join('sales as s', 's.id', '=', 'p.sale_id')
             ->where('s.status', 'pagado')
             ->whereBetween('p.paid_at', [$fromDB, $toDB])
+            ->when($isDealer, function ($q) use ($user, $dealerLocId) {
+                $q->where(function ($qq) use ($user, $dealerLocId) {
+                    $qq->where('s.delivery_id', $user->id);
+                    if ($dealerLocId) {
+                        $qq->orWhere('s.location_id', $dealerLocId);
+                    }
+                });
+            })
             ->groupBy('pm.id', 'pm.name')
             ->orderByDesc(DB::raw('SUM(p.amount)'))
             ->get([

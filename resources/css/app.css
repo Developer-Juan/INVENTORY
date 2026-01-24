@@ -1,3 +1,15 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@keyframes tada {
+    0% { transform: scale(1); }
+    10%, 20% { transform: scale(0.95) rotate(-2deg); }
+    30%, 50%, 70%, 90% { transform: scale(1.05) rotate(2deg); }
+    40%, 60%, 80% { transform: scale(1.05) rotate(-2deg); }
+    100% { transform: scale(1) rotate(0); }
+}
+
+.animate-tada {
+    animation: tada 1.2s ease-in-out;
+}

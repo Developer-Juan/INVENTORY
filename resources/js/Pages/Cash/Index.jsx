@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Head, useForm, usePage } from "@inertiajs/react";
+import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 
 export default function CashIndex() {
@@ -11,6 +11,9 @@ export default function CashIndex() {
         totalCash = 0,
         isAdmin = false,
     } = usePage().props;
+
+    const moveRows = Array.isArray(moves) ? moves : (moves?.data ?? []);
+    const moveLinks = Array.isArray(moves) ? [] : (moves?.links ?? []);
 
     const [showTransfer, setShowTransfer] = useState(false);
     const [showPickup, setShowPickup] = useState(false);
@@ -195,7 +198,7 @@ export default function CashIndex() {
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-100">
-                            {moves.map((m) => (
+                            {moveRows.map((m) => (
                                 <tr key={m.id}>
                                     <td className="px-4 py-2">
                                         {m.created_at ? new Date(m.created_at).toLocaleString("es-CO") : ""}
@@ -218,7 +221,7 @@ export default function CashIndex() {
                                     <td className="px-4 py-2">{m.creator?.name ?? "—"}</td>
                                 </tr>
                             ))}
-                            {moves.length === 0 && (
+                            {moveRows.length === 0 && (
                                 <tr>
                                     <td className="px-4 py-6 text-gray-500" colSpan={6}>
                                         Sin movimientos.
@@ -228,6 +231,22 @@ export default function CashIndex() {
                         </tbody>
                     </table>
                 </div>
+
+                {moveLinks.length > 0 && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                        {moveLinks.map((link, i) => (
+                            <Link
+                                key={i}
+                                href={link.url || "#"}
+                                preserveScroll
+                                className={`px-3 py-1 rounded border text-sm
+                                    ${link.active ? "bg-blue-600 text-white" : "bg-white text-gray-700"}
+                                    ${!link.url ? "opacity-50 pointer-events-none" : ""}`}
+                                dangerouslySetInnerHTML={{ __html: link.label }}
+                            />
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* Modal Transferir */}

@@ -3,8 +3,14 @@
 use App\Http\Controllers\BalanceController;
 use App\Http\Controllers\CashController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\GiftController;
 use App\Http\Controllers\InventoryController;
+use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\PointsController;
+use App\Http\Controllers\ServiceQualityController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\SupportController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\StockController;
 use App\Http\Controllers\TransferController;
@@ -33,6 +39,18 @@ Route::get('/', function () {
     ]);
 });
 
+// Consulta pública de puntos (sin login)
+Route::get('/points/consulta', [PointsController::class, 'publicLookupPage'])
+    ->name('points.public');
+Route::get('/points/consulta/lookup', [PointsController::class, 'publicLookup'])
+    ->name('points.public.lookup');
+
+// Calidad de servicio (público)
+Route::get('/calidad/{token}', [ServiceQualityController::class, 'publicShow'])
+    ->name('quality.public');
+Route::post('/calidad/{token}', [ServiceQualityController::class, 'publicSubmit'])
+    ->name('quality.public.submit');
+
 Route::get('/dashboard', DashboardController::class . '@index')
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
@@ -60,6 +78,33 @@ Route::middleware(['auth'])->group(function () {
 
     Route::post('/sales/{sale}/delivery/settle', [SaleController::class, 'settleDelivery'])
         ->name('sales.delivery.settle');
+
+    // Clientes (rol customer)
+    Route::get('/customers/lookup', [CustomerController::class, 'lookup'])
+        ->name('customers.lookup');
+    Route::post('/customers', [CustomerController::class, 'store'])
+        ->name('customers.store');
+
+    // Soporte (dealer/admin)
+    Route::get('/support', [SupportController::class, 'index'])->name('support.index');
+    Route::post('/support', [SupportController::class, 'storeTicket'])->name('support.store');
+    Route::post('/support/{ticket}/messages', [SupportController::class, 'storeMessage'])
+        ->name('support.messages.store');
+    Route::post('/support/{ticket}/close', [SupportController::class, 'closeTicket'])
+        ->name('support.close');
+
+    // Notificaciones
+    Route::get('/notifications', [NotificationController::class, 'index'])
+        ->name('notifications.index');
+    Route::post('/notifications/dealers', [NotificationController::class, 'storeDealerNotice'])
+        ->middleware(['role:admin'])
+        ->name('notifications.dealers.store');
+
+    // Calidad de servicio (panel admin/dealer)
+    Route::get('/calidad', [ServiceQualityController::class, 'index'])
+        ->name('quality.index');
+    Route::post('/calidad/{sale}/token', [ServiceQualityController::class, 'createToken'])
+        ->name('quality.token.create');
 
     Route::get('/stock', [StockController::class, 'index'])->name('stock.index');
     Route::get('/stock/summary', [StockController::class, 'summary'])->name('stock.summary');
@@ -104,6 +149,23 @@ Route::middleware(['auth'])->group(function () {
 
         Route::post('/balances/{dealerLocationId}/settle', [BalanceController::class, 'settleDealer'])
             ->name('balances.settle');
+
+    // Puntos (config y redenciones)
+    Route::get('/points', [PointsController::class, 'index'])->name('points.index');
+        Route::post('/points/settings', [PointsController::class, 'updateSettings'])
+            ->name('points.settings.update');
+        Route::post('/points/rewards', [PointsController::class, 'storeReward'])
+            ->name('points.rewards.store');
+        Route::put('/points/rewards/{reward}', [PointsController::class, 'updateReward'])
+            ->name('points.rewards.update');
+    Route::delete('/points/rewards/{reward}', [PointsController::class, 'destroyReward'])
+        ->name('points.rewards.destroy');
+
+    // Regalos
+    Route::get('/gifts', [GiftController::class, 'index'])->name('gifts.index');
+        Route::get('/gifts/lookup', [GiftController::class, 'lookupCustomer'])
+            ->name('gifts.customer.lookup');
+        Route::post('/gifts', [GiftController::class, 'store'])->name('gifts.store');
 
 
 

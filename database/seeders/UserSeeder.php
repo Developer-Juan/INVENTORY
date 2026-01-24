@@ -20,6 +20,7 @@ class UserSeeder extends Seeder
         $deliveryRole = Role::firstOrCreate(['name' => 'delivery']);
         $cashierRole = Role::firstOrCreate(['name' => 'cashier']);
         $dealerRole = Role::firstOrCreate(['name' => 'dealer']); // opcional
+        $customerRole = Role::firstOrCreate(['name' => 'customer']);
 
         // Usuarios fijos
         $dani = User::firstOrCreate(

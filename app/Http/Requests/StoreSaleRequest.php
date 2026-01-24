@@ -17,7 +17,10 @@ class StoreSaleRequest extends FormRequest
     {
         return [
             // Cliente (opcional)
-            'customer_id' => ['nullable', 'string', 'regex:/^\d{4}$/'],
+            'customer_id' => ['nullable', 'string', 'regex:/^\\d{7,15}$/'],
+            'points_redeem' => ['nullable', 'integer', 'min:0'],
+            'debtor_name' => ['nullable', 'string', 'max:191'],
+            'debtor_phone' => ['nullable', 'string', 'max:191'],
 
             // Delivery (opcional)
             'delivery_id' => ['nullable', 'integer', 'exists:users,id'],
@@ -47,9 +50,10 @@ class StoreSaleRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'customer_id.regex' => 'El ID de cliente debe tener 4 dígitos.',
+            'customer_id.regex' => 'El celular del cliente debe tener entre 7 y 15 dígitos.',
             'km.required_with' => 'Ingresa los KM si seleccionas un repartidor.',
         ];
     }
 
 }
+

@@ -18,9 +18,9 @@ class TransferController extends Controller
     public function create(Request $request)
     {
         $user = auth()->user();
-        $isAdmin = method_exists($user, 'hasRole')
-            ? $user->hasRole('admin') || $user->hasRole('super-admin')
-            : false;
+        $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin') || $roles->contains('super-admin');
+        $isDealer = $roles->contains('dealer');
 
         $principalId = Location::whereIn('type', ['principal', 'main'])->value('id');
 
@@ -44,6 +44,16 @@ class TransferController extends Controller
             ->whereIn('type', ['dealer', 'secondary', 'dealer_secondary'])
             ->with('user:id,name')
             ->get(['id', 'name', 'user_id', 'type']);
+
+        $dealerLocationId = null;
+        if ($isDealer) {
+            $dealerLocationId = Location::query()
+                ->whereIn('type', ['dealer', 'secondary', 'dealer_secondary'])
+                ->where('user_id', $user->id)
+                ->value('id');
+            $dealerId = $dealerLocationId;
+            $dealerLocations = $dealerLocations->where('id', $dealerLocationId)->values();
+        }
 
         // -------- query base historial --------
         $historyQuery = Transfer::query()
@@ -69,6 +79,8 @@ class TransferController extends Controller
         // filtrar por dealer (destino)
         if (!empty($dealerId)) {
             $historyQuery->where('to_location_id', $dealerId);
+        } elseif ($isDealer) {
+            $historyQuery->whereRaw('1 = 0');
         }
 
         // filtrar por rango de FECHA PURA (sin hora)
@@ -93,6 +105,7 @@ class TransferController extends Controller
 
         return Inertia::render('Transfers/Create', [
             'isAdmin' => $isAdmin,
+            'canTransfer' => $isAdmin,
             'principalId' => (int) $principalId,
             'locations' => $locations,
             'dealerLocations' => $dealerLocations,
@@ -102,6 +115,7 @@ class TransferController extends Controller
                 'from_date' => $fromDateRaw ?: '',
                 'to_date' => $toDateRaw ?: '',
             ],
+            'dealerLocationId' => $dealerLocationId ? (int) $dealerLocationId : null,
         ]);
     }
 
@@ -140,7 +154,13 @@ class TransferController extends Controller
     public function store(Request $r)
     {
         $user = auth()->user();
-        $isAdmin = method_exists($user, 'hasRole') ? $user->hasRole('admin') || $user->hasRole('super-admin') : false;
+        $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin') || $roles->contains('super-admin');
+        $isDealer = $roles->contains('dealer');
+
+        if ($isDealer && !$isAdmin) {
+            abort(403);
+        }
 
         // Validación base: cantidad numérica y al menos 0.5 (el ajuste fino lo hacemos abajo)
         $baseRules = [

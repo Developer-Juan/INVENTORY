@@ -43,8 +43,14 @@ export default function Dashboard() {
   const [range, setRange] = useState({ from: initialFrom, to: initialTo });
 
   const submitRange = (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     router.get(route("dashboard"), { from: range.from, to: range.to }, { preserveScroll: true });
+  };
+
+  const applyQuickRange = (days) => {
+    const next = { from: daysAgoStr(days - 1), to: todayStr() };
+    setRange(next);
+    router.get(route("dashboard"), next, { preserveScroll: true });
   };
 
   const pieColors = ["#16a34a", "#22c55e", "#65a30d", "#4ade80", "#84cc16", "#15803d", "#a3e635", "#166534"];
@@ -87,7 +93,7 @@ export default function Dashboard() {
           <div className="flex gap-2 ml-auto w-full sm:w-auto">
             <button
               type="button"
-              onClick={() => setRange({ from: daysAgoStr(6), to: todayStr() })}
+              onClick={() => applyQuickRange(7)}
               className="flex-1 sm:flex-none px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600
                          text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
             >
@@ -95,7 +101,7 @@ export default function Dashboard() {
             </button>
             <button
               type="button"
-              onClick={() => setRange({ from: daysAgoStr(29), to: todayStr() })}
+              onClick={() => applyQuickRange(30)}
               className="flex-1 sm:flex-none px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600
                          text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
             >
@@ -174,7 +180,7 @@ export default function Dashboard() {
 
           {/* Ubicaciones */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4">
-            <div className="mb-2 font-semibold text-gray-900 dark:text-gray-100">Top ubicaciones (por monto)</div>
+            <div className="mb-2 font-semibold text-gray-900 dark:text-gray-100">Ventas por ubicación (monto)</div>
             <div className="h-72 text-gray-800 dark:text-gray-200">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={topLocations} barCategoryGap="20%">

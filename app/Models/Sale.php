@@ -13,10 +13,14 @@ class Sale extends Model
     public const ST_PARCIAL = 'parcial';
     public const ST_PAGADO = 'pagado';
     public const ST_ANULADA = 'anulada';
+    public const ST_GIFT = 'gift';
 
     protected $fillable = [
         'user_id',
         'customer_id',
+        'customer_user_id',
+        'debtor_name',
+        'debtor_phone',
         'subtotal',
         'discount',
         'tax',
@@ -45,6 +49,11 @@ class Sale extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function customerUser()
+    {
+        return $this->belongsTo(User::class, 'customer_user_id');
     }
     public function items()
     {

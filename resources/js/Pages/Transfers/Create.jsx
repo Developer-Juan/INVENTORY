@@ -14,6 +14,8 @@ export default function Create() {
         history = {},
         flash = {},
         filters = {}, // dealer_id, from_date, to_date
+        canTransfer = false,
+        dealerLocationId = null,
     } = usePage().props;
 
     const histRows = Array.isArray(history) ? history : history?.data ?? [];
@@ -393,7 +395,13 @@ export default function Create() {
 
             {/* ================== FORM CREAR TRANSFER ================== */}
             <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
-                <form onSubmit={submit} className="space-y-6">
+                {!canTransfer && (
+                    <div className="bg-white rounded-xl shadow p-4 text-sm text-gray-600">
+                        Este rol no puede transferir inventario. Solo puedes ver el historial de transferencias.
+                    </div>
+                )}
+                {canTransfer && (
+                    <form onSubmit={submit} className="space-y-6">
                     {/* Selección origen/destino + nota */}
                     <div className="bg-white rounded-xl shadow p-4 grid gap-4 sm:grid-cols-3">
                         {isAdmin ? (
@@ -1093,7 +1101,8 @@ export default function Create() {
                                 : "Transferir"}
                         </button>
                     </div>
-                </form>
+                    </form>
+                )}
             </div>
 
             {/* ================== HISTORIAL ================== */}
@@ -1120,6 +1129,7 @@ export default function Create() {
                                     e.target.value
                                 )
                             }
+                            disabled={!canTransfer}
                         >
                             <option value="">
                                 Todos

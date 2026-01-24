@@ -164,7 +164,7 @@ export default function BalancesIndex() {
                     {/* Dealer */}
                     <div className="lg:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                            Dealer / Punto
+                            Dealer / Sucursal
                         </label>
                         <select
                             className="mt-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 w-full text-sm"

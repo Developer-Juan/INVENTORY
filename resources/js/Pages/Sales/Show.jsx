@@ -30,17 +30,21 @@ export default function Show({ sale: saleProp }) {
             maximumFractionDigits: 2,
         });
 
-    const customerId4 =
-        sale.customer_id != null
-            ? String(sale.customer_id).padStart(4, '0')
-            : null;
+    const customerPhone = sale.customer_user?.phone ?? null;
+    const customerPoints = Number(
+        sale.customer_user?.customer_points?.points_balance ?? 0
+    );
 
     const statusBadge =
         sale.status === 'pagado'
             ? 'px-2 py-0.5 rounded-full bg-green-100 text-green-800'
             : sale.status === 'parcial'
                 ? 'px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800'
-                : 'px-2 py-0.5 rounded-full bg-red-100 text-red-800';
+                : sale.status === 'anulada'
+                    ? 'px-2 py-0.5 rounded-full bg-gray-200 text-gray-700'
+                    : sale.status === 'gift'
+                        ? 'px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800'
+                        : 'px-2 py-0.5 rounded-full bg-red-100 text-red-800';
 
     // Delivery
     const hasDelivery = !!sale.delivery_id;
@@ -101,8 +105,22 @@ export default function Show({ sale: saleProp }) {
 
                     <p>
                         <span className="text-gray-600">Cliente ID:</span>{' '}
-                        {customerId4 ?? '—'}
+                        {customerPhone ?? '—'}
                     </p>
+                    {sale.status === 'gift' && sale.customer_user && (
+                        <p>
+                            <span className="text-gray-600">Regalo para:</span>{' '}
+                            {sale.customer_user?.name ?? '—'}
+                        </p>
+                    )}
+                    {sale.customer_user && (
+                        <p>
+                            <span className="text-gray-600">
+                                Puntos cliente:
+                            </span>{' '}
+                            {customerPoints.toLocaleString('es-CO')} pts
+                        </p>
+                    )}
 
                     <p>
                         <span className="text-gray-600">Vendedor:</span>{' '}
@@ -133,6 +151,18 @@ export default function Show({ sale: saleProp }) {
                         <span className="text-gray-600">Saldo:</span>{' '}
                         ${fmtMoney(sale.balance)}
                     </p>
+                    {sale.status === 'parcial' &&
+                        (sale.debtor_name || sale.debtor_phone) && (
+                            <p>
+                                <span className="text-gray-600">
+                                    Deudor:
+                                </span>{' '}
+                                {sale.debtor_name ?? '—'}
+                                {sale.debtor_phone
+                                    ? ` · ${sale.debtor_phone}`
+                                    : ''}
+                            </p>
+                        )}
                 </div>
 
                 {/* ================= DELIVERY ================= */}
@@ -255,9 +285,10 @@ export default function Show({ sale: saleProp }) {
                 <div className="flex justify-end">
                     <Link
                         href={route('sales.index')}
-                        className="text-indigo-600 hover:text-indigo-800"
+                        className="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-800"
                     >
-                        Volver al listado
+                        <span aria-hidden="true">←</span>
+                        <span>Volver al listado</span>
                     </Link>
                 </div>
             </div>

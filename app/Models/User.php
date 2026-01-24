@@ -21,6 +21,7 @@ class User extends Authenticatable
     protected $fillable = [
         'name',
         'email',
+        'phone',
         'password',
         'location_id'
     ];
@@ -50,5 +51,10 @@ class User extends Authenticatable
     {
         // locations.user_id -> users.id
         return $this->hasOne(Location::class);
+    }
+
+    public function customerPoints()
+    {
+        return $this->hasOne(CustomerPoint::class);
     }
 }

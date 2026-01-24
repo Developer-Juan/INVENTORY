@@ -14,6 +14,7 @@ use App\Models\PaymentMethod;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\SaleVoid;
+use App\Models\ServiceQualityToken;
 use App\Models\User;
 use App\Services\DeliveryFare;
 use Carbon\Carbon;
@@ -23,6 +24,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
+use Illuminate\Support\Str;
 
 class SaleController extends Controller
 {
@@ -45,6 +47,7 @@ class SaleController extends Controller
         $salesQuery = Sale::query()
             ->with([
                 'user:id,name',
+                'customerUser:id,name,phone',
 
                 // Ítems con nombre/unidad para el popover
                 'items' => fn($q) => $q->select('id', 'sale_id', 'inventory_id', 'quantity', 'total')
@@ -59,6 +62,9 @@ class SaleController extends Controller
                 'id',
                 'user_id',
                 'customer_id',
+                'customer_user_id',
+                'debtor_name',
+                'debtor_phone',
                 'subtotal',
                 'discount',
                 'tax',
@@ -73,6 +79,15 @@ class SaleController extends Controller
         // ====== filtro dealer / domiciliario ======
         if (!empty($dealerId)) {
             $salesQuery->where('delivery_id', $dealerId);
+        }
+
+        // ====== si es dealer, solo ver ventas asociadas al usuario logueado ======
+        $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect();
+        if ($roles->contains('dealer')) {
+            $salesQuery->where(function ($q) use ($user) {
+                $q->where('user_id', $user->id)
+                    ->orWhere('delivery_id', $user->id);
+            });
         }
 
         // ====== filtro estado ======
@@ -157,9 +172,10 @@ class SaleController extends Controller
         $userLocId = Location::where('user_id', $user->id)->value('id');
         $dealerLocId = Location::where('type', 'dealer')->where('user_id', $user->id)->value('id');
 
-        if (method_exists($user, 'hasRole') && $user->hasRole('dealer')) {
+        $roles = $roles ?? (method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect());
+        if ($roles->contains('dealer')) {
             $myLocationId = $dealerLocId ?: $userLocId ?: $principalId ?: Location::min('id');
-        } elseif (method_exists($user, 'hasRole') && ($user->hasRole('admin') || $user->hasRole('super-admin'))) {
+        } elseif ($roles->contains('admin') || $roles->contains('super-admin')) {
             $myLocationId = $principalId ?: $userLocId ?: Location::min('id');
         } else {
             $myLocationId = $userLocId ?: $principalId ?: Location::min('id');
@@ -197,7 +213,10 @@ class SaleController extends Controller
             'parcial' => 'Parcial',
             'debe' => 'Debe',
             'anulada' => 'Anulada',
+            'gift' => 'Regalo',
         ];
+
+        $pointsSettings = \App\Models\PointsSetting::first();
 
         // Filtros actuales para hidratar el front
         $currentFilters = [
@@ -216,6 +235,12 @@ class SaleController extends Controller
             'saleStatuses' => $saleStatuses,
             'filters' => $currentFilters,
             'current_location_id' => $myLocationId,
+            'pointsSettings' => $pointsSettings
+                ? [
+                    'value_per_point' => (float) $pointsSettings->value_per_point,
+                    'redemption_info' => $pointsSettings->redemption_info,
+                ]
+                : null,
         ]);
     }
 
@@ -229,6 +254,8 @@ class SaleController extends Controller
     {
         $sale->load([
             'user:id,name',
+            'customerUser:id,name,phone',
+            'customerUser.customerPoints:user_id,points_balance',
             'delivery:id,name',
             'items.inventory:id,name,unit',
             'payments.method:id,code,name',
@@ -255,10 +282,15 @@ class SaleController extends Controller
 
                 $actor = auth()->user();
 
-                // customer_id a 4 dígitos
+                // customer_id = celular completo (solo dígitos)
                 $customerId = isset($data['customer_id']) && $data['customer_id'] !== null
-                    ? str_pad((string) $data['customer_id'], 4, '0', STR_PAD_LEFT)
+                    ? preg_replace('/\\D+/', '', (string) $data['customer_id'])
                     : null;
+
+                $customerUser = null;
+                if ($customerId) {
+                    $customerUser = User::role('customer')->where('phone', $customerId)->first();
+                }
 
                 $hasDealer = !empty($data['delivery_id']);
                 $kmVal = isset($data['km']) ? (float) $data['km'] : 0.0;
@@ -275,7 +307,8 @@ class SaleController extends Controller
                         ]);
                     }
                 } else {
-                    if (method_exists($actor, 'hasRole') && $actor->hasRole('dealer')) {
+                    $actorRoles = method_exists($actor, 'getRoleNames') ? $actor->getRoleNames() : collect();
+                    if ($actorRoles->contains('dealer')) {
                         $locationId = Location::where('type', 'dealer')
                             ->where('user_id', $actor->id)
                             ->value('id');
@@ -320,6 +353,7 @@ class SaleController extends Controller
                 $sale = Sale::create([
                     'user_id' => $actor->id,
                     'customer_id' => $customerId,
+                    'customer_user_id' => $customerUser?->id,
                     'delivery_id' => $hasDealer ? (int) $data['delivery_id'] : null,
                     'location_id' => $locationId,
                     'km' => $hasDealer ? $kmVal : 0,
@@ -473,7 +507,49 @@ class SaleController extends Controller
                 // === Totales cabecera (SIN delivery_rate)
                 $headerDiscount = $m2($data['discount'] ?? 0);
                 $headerTax = $m2($data['tax'] ?? 0);
-                $total = $m2(max(0, $subtotal - $headerDiscount + $headerTax)); // SIN delivery
+                $pointsToRedeem = max(0, (int) ($data['points_redeem'] ?? 0));
+                $pointsDiscount = 0.0;
+
+                if ($pointsToRedeem > 0) {
+                    if (!$customerUser) {
+                        throw ValidationException::withMessages([
+                            'points_redeem' => 'Debes asociar un cliente para redimir puntos.',
+                        ]);
+                    }
+                    $settings = \App\Models\PointsSetting::first();
+                    $valuePerPoint = $settings ? (float) $settings->value_per_point : 0.0;
+                    if ($valuePerPoint <= 0) {
+                        throw ValidationException::withMessages([
+                            'points_redeem' => 'El valor del punto no está configurado.',
+                        ]);
+                    }
+
+                    $pointsRow = \App\Models\CustomerPoint::firstOrCreate(
+                        ['user_id' => $customerUser->id],
+                        ['points_balance' => 0]
+                    );
+
+                    if ($pointsToRedeem > (int) $pointsRow->points_balance) {
+                        throw ValidationException::withMessages([
+                            'points_redeem' => 'Puntos insuficientes para redimir.',
+                        ]);
+                    }
+
+                    $maxDiscountBase = max(0, $subtotal - $headerDiscount + $headerTax);
+                    $maxPointsAllowed = $valuePerPoint > 0
+                        ? (int) floor($maxDiscountBase / $valuePerPoint)
+                        : 0;
+                    if ($pointsToRedeem > $maxPointsAllowed) {
+                        throw ValidationException::withMessages([
+                            'points_redeem' => 'Los puntos exceden el total de la venta.',
+                        ]);
+                    }
+
+                    $pointsDiscount = $m2($pointsToRedeem * $valuePerPoint);
+                }
+
+                $totalDiscount = $m2($headerDiscount + $pointsDiscount);
+                $total = $m2(max(0, $subtotal - $totalDiscount + $headerTax)); // SIN delivery
 
                 // Pagos
                 $paid = 0.0;
@@ -509,10 +585,27 @@ class SaleController extends Controller
                 $balance = $m2($total - $paid);
                 $status = $balance <= 0 ? 'pagado' : ($paid > 0 ? 'parcial' : 'debe');
 
+                $debtorName = trim((string) ($data['debtor_name'] ?? ''));
+                $debtorPhone = trim((string) ($data['debtor_phone'] ?? ''));
+                $debtorName = $debtorName !== '' ? $debtorName : null;
+                $debtorPhone = $debtorPhone !== '' ? $debtorPhone : null;
+
+                if ($balance > 0 && (!$debtorName || !$debtorPhone) && $customerUser) {
+                    $debtorName = $debtorName ?: $customerUser->name;
+                    $debtorPhone = $debtorPhone ?: $customerUser->phone;
+                }
+
+                if ($balance > 0 && (!$debtorName || !$debtorPhone)) {
+                    throw ValidationException::withMessages([
+                        'debtor_name' => 'Ingresa el nombre del deudor.',
+                        'debtor_phone' => 'Ingresa el teléfono del deudor.',
+                    ]);
+                }
+
                 // Guardar cabecera (con delivery_rate y delivery_pay pero sin tocar total)
                 $sale->update([
                     'subtotal' => $m2($subtotal),
-                    'discount' => $headerDiscount,
+                    'discount' => $totalDiscount,
                     'tax' => $headerTax,
                     'delivery_rate' => $deliveryRate,
                     'delivery_pay' => $deliveryPay,
@@ -520,7 +613,60 @@ class SaleController extends Controller
                     'paid' => $m2($paid),
                     'balance' => $balance,
                     'status' => $status,
+                    'debtor_name' => $balance > 0 ? $debtorName : null,
+                    'debtor_phone' => $balance > 0 ? $debtorPhone : null,
                 ]);
+                // ===== Puntos: redimir =====
+                if ($pointsToRedeem > 0 && $customerUser) {
+                    $pointsRow = \App\Models\CustomerPoint::firstOrCreate(
+                        ['user_id' => $customerUser->id],
+                        ['points_balance' => 0]
+                    );
+                    $pointsRow->points_balance = max(0, (int) $pointsRow->points_balance - $pointsToRedeem);
+                    $pointsRow->save();
+
+                    \App\Models\PointsTransaction::create([
+                        'user_id' => $customerUser->id,
+                        'sale_id' => $sale->id,
+                        'type' => 'redeem',
+                        'points' => -$pointsToRedeem,
+                        'note' => 'Redención en venta',
+                        'created_by' => $actor->id,
+                    ]);
+                }
+
+                // ===== Puntos: acumular por ítem (1 punto por línea) =====
+                if ($customerUser) {
+                    $pointsEarned = (int) count($lines);
+                    if ($pointsEarned > 0) {
+                        $pointsRow = \App\Models\CustomerPoint::firstOrCreate(
+                            ['user_id' => $customerUser->id],
+                            ['points_balance' => 0]
+                        );
+                        $pointsRow->points_balance = (int) $pointsRow->points_balance + $pointsEarned;
+                        $pointsRow->save();
+
+                        \App\Models\PointsTransaction::create([
+                            'user_id' => $customerUser->id,
+                            'sale_id' => $sale->id,
+                            'type' => 'earn',
+                            'points' => $pointsEarned,
+                            'note' => 'Puntos por compra',
+                            'created_by' => $actor->id,
+                        ]);
+                    }
+                }
+
+                // ===== Calidad de servicio: token para calificar =====
+                if (!empty($sale->delivery_id)) {
+                    ServiceQualityToken::create([
+                        'sale_id' => $sale->id,
+                        'dealer_user_id' => (int) $sale->delivery_id,
+                        'token' => Str::random(40),
+                        'expires_at' => now()->addHour(),
+                        'created_by' => $actor->id,
+                    ]);
+                }
 
                 // ================== CAJA (solo efectivo) ==================
                 // Cargamos solo los métodos usados y aplicamos fallback por nombre/código.
@@ -627,6 +773,8 @@ class SaleController extends Controller
             'payment_method_id' => ['required', 'exists:payment_methods,id'],
             'amount' => ['required', 'numeric', 'min:0.01'],
             'reference' => ['nullable', 'string', 'max:191'],
+            'debtor_name' => ['nullable', 'string', 'max:191'],
+            'debtor_phone' => ['nullable', 'string', 'max:191'],
         ]);
 
         DB::transaction(function () use ($sale, $data) {
@@ -634,7 +782,8 @@ class SaleController extends Controller
 
             // Bloquea la venta y trae ítems con lo necesario para prorratear
             $sale = Sale::with([
-                'items:id,sale_id,location_id,total,quantity,unit_price,discount',
+                'items:id,sale_id,total,quantity,unit_price,discount',
+                'customerUser:id,name,phone',
             ])
                 ->whereKey($sale->id)
                 ->lockForUpdate()
@@ -654,6 +803,11 @@ class SaleController extends Controller
                 ]);
             }
 
+            $debtorNameIn = trim((string) ($data['debtor_name'] ?? ''));
+            $debtorPhoneIn = trim((string) ($data['debtor_phone'] ?? ''));
+            $debtorNameIn = $debtorNameIn !== '' ? $debtorNameIn : null;
+            $debtorPhoneIn = $debtorPhoneIn !== '' ? $debtorPhoneIn : null;
+
             // 1) Registrar pago
             Payment::create([
                 'sale_id' => $sale->id,
@@ -668,10 +822,25 @@ class SaleController extends Controller
             $balance = round($sale->total - $paid, 2);
             $status = $balance <= 0 ? 'pagado' : 'parcial';
 
+            $debtorName = $debtorNameIn ?: $sale->debtor_name;
+            $debtorPhone = $debtorPhoneIn ?: $sale->debtor_phone;
+            if ($balance > 0 && (!$debtorName || !$debtorPhone) && $sale->customerUser) {
+                $debtorName = $debtorName ?: $sale->customerUser->name;
+                $debtorPhone = $debtorPhone ?: $sale->customerUser->phone;
+            }
+            if ($balance > 0 && (!$debtorName || !$debtorPhone)) {
+                throw ValidationException::withMessages([
+                    'debtor_name' => 'Ingresa el nombre del deudor.',
+                    'debtor_phone' => 'Ingresa el teléfono del deudor.',
+                ]);
+            }
+
             $sale->update([
                 'paid' => $paid,
                 'balance' => $balance,
                 'status' => $status,
+                'debtor_name' => $balance > 0 ? $debtorName : $sale->debtor_name,
+                'debtor_phone' => $balance > 0 ? $debtorPhone : $sale->debtor_phone,
             ]);
 
             // 3) Si el método es efectivo, mover caja en las ubicaciones
@@ -1131,3 +1300,17 @@ class SaleController extends Controller
 
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+

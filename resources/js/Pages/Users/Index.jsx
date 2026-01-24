@@ -268,23 +268,23 @@ export default function UsersIndex() {
                 <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
                 <div className="fixed inset-0 grid place-items-center p-4">
                     <div className="w-full max-w-lg rounded bg-white dark:bg-gray-800 p-6 shadow-lg">
-                        <Dialog.Title className="text-lg font-semibold mb-4">Nuevo usuario</Dialog.Title>
+                        <Dialog.Title className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Nuevo usuario</Dialog.Title>
                         <form onSubmit={submitCreate} className="space-y-4">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-sm">Nombre</label>
+                                    <label className="block text-sm text-gray-700 dark:text-gray-300">Nombre</label>
                                     <input
-                                        className="mt-1 w-full border rounded px-3 py-2"
+                                        className="mt-1 w-full border rounded px-3 py-2 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
                                         value={createForm.data.name}
                                         onChange={(e) => createForm.setData('name', e.target.value)}
                                     />
                                     {createForm.errors.name && <p className="text-xs text-red-600">{createForm.errors.name}</p>}
                                 </div>
                                 <div>
-                                    <label className="block text-sm">Email</label>
+                                    <label className="block text-sm text-gray-700 dark:text-gray-300">Email</label>
                                     <input
                                         type="email"
-                                        className="mt-1 w-full border rounded px-3 py-2"
+                                        className="mt-1 w-full border rounded px-3 py-2 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
                                         value={createForm.data.email}
                                         onChange={(e) => createForm.setData('email', e.target.value)}
                                     />
@@ -294,20 +294,20 @@ export default function UsersIndex() {
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-sm">Password</label>
+                                    <label className="block text-sm text-gray-700 dark:text-gray-300">Password</label>
                                     <input
                                         type="password"
-                                        className="mt-1 w-full border rounded px-3 py-2"
+                                        className="mt-1 w-full border rounded px-3 py-2 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
                                         value={createForm.data.password}
                                         onChange={(e) => createForm.setData('password', e.target.value)}
                                     />
                                     {createForm.errors.password && <p className="text-xs text-red-600">{createForm.errors.password}</p>}
                                 </div>
                                 <div>
-                                    <label className="block text-sm">Confirmación</label>
+                                    <label className="block text-sm text-gray-700 dark:text-gray-300">Confirmación</label>
                                     <input
                                         type="password"
-                                        className="mt-1 w-full border rounded px-3 py-2"
+                                        className="mt-1 w-full border rounded px-3 py-2 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
                                         value={createForm.data.password_confirmation}
                                         onChange={(e) => createForm.setData('password_confirmation', e.target.value)}
                                     />
@@ -316,10 +316,10 @@ export default function UsersIndex() {
 
                             {/* Ubicación existente o crear nueva */}
                             <div className="space-y-2">
-                                <label className="block text-sm">Ubicación (dealer)</label>
+                                <label className="block text-sm text-gray-700 dark:text-gray-300">Ubicación (dealer)</label>
 
                                 <select
-                                    className="mt-1 w-full border rounded px-3 py-2"
+                                    className="mt-1 w-full border rounded px-3 py-2 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
                                     value={createForm.data.location_id}
                                     onChange={(e) => createForm.setData('location_id', e.target.value)}
                                     disabled={createForm.data.create_location}
@@ -336,7 +336,7 @@ export default function UsersIndex() {
                                     <p className="text-xs text-red-600">{createForm.errors.location_id}</p>
                                 )}
 
-                                <label className="inline-flex items-center gap-2 text-sm mt-2">
+                                <label className="inline-flex items-center gap-2 text-sm mt-2 text-gray-700 dark:text-gray-300">
                                     <input
                                         type="checkbox"
                                         checked={createForm.data.create_location}
@@ -354,7 +354,7 @@ export default function UsersIndex() {
 
                                 {createForm.data.create_location && (
                                     <input
-                                        className="mt-1 w-full border rounded px-3 py-2"
+                                        className="mt-1 w-full border rounded px-3 py-2 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 placeholder:text-gray-400 dark:placeholder:text-gray-400"
                                         placeholder="Nombre de la nueva ubicación (p. ej. Dealer Juan)"
                                         value={createForm.data.new_location_name}
                                         onChange={(e) => createForm.setData('new_location_name', e.target.value)}
@@ -366,18 +366,32 @@ export default function UsersIndex() {
                             </div>
 
                             <div>
-                                <label className="block text-sm mb-1">Roles</label>
+                                <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">Roles</label>
                                 <div className="flex flex-wrap gap-3">
-                                    {roles.map((r) => (
-                                        <label key={r} className="inline-flex items-center gap-2 text-sm">
-                                            <input
-                                                type="checkbox"
-                                                checked={createForm.data.roles.includes(r)}
-                                                onChange={() => onToggleRole(createForm, r)}
-                                            />
-                                            <span>{r}</span>
-                                        </label>
-                                    ))}
+                                    {roles.map((r) => {
+                                        const checked = createForm.data.roles.includes(r);
+                                        return (
+                                            <label
+                                                key={r}
+                                                className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
+                                            >
+                                                <button
+                                                    type="button"
+                                                    role="switch"
+                                                    aria-checked={checked}
+                                                    onClick={() => onToggleRole(createForm, r)}
+                                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition
+                                                        ${checked ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'}`}
+                                                >
+                                                    <span
+                                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition
+                                                            ${checked ? 'translate-x-6' : 'translate-x-1'}`}
+                                                    />
+                                                </button>
+                                                <span>{r}</span>
+                                            </label>
+                                        );
+                                    })}
                                 </div>
                                 {createForm.errors.roles && (
                                     <p className="text-xs text-red-600">{createForm.errors.roles}</p>
@@ -385,7 +399,11 @@ export default function UsersIndex() {
                             </div>
 
                             <div className="flex justify-end gap-2">
-                                <button type="button" onClick={() => setOpenCreate(false)} className="px-3 py-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setOpenCreate(false)}
+                                    className="px-3 py-2 text-gray-700 dark:text-gray-200"
+                                >
                                     Cancelar
                                 </button>
                                 <button
@@ -529,16 +547,27 @@ export default function UsersIndex() {
                             <div>
                                 <label className="block text-sm mb-1">Roles</label>
                                 <div className="flex flex-wrap gap-3">
-                                    {roles.map((r) => (
-                                        <label key={r} className="inline-flex items-center gap-2 text-sm">
-                                            <input
-                                                type="checkbox"
-                                                checked={editForm.data.roles.includes(r)}
-                                                onChange={() => onToggleRole(editForm, r)}
-                                            />
-                                            <span>{r}</span>
-                                        </label>
-                                    ))}
+                                    {roles.map((r) => {
+                                        const checked = editForm.data.roles.includes(r);
+                                        return (
+                                            <label key={r} className="inline-flex items-center gap-2 text-sm">
+                                                <button
+                                                    type="button"
+                                                    role="switch"
+                                                    aria-checked={checked}
+                                                    onClick={() => onToggleRole(editForm, r)}
+                                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition
+                                                        ${checked ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-gray-600'}`}
+                                                >
+                                                    <span
+                                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition
+                                                            ${checked ? 'translate-x-6' : 'translate-x-1'}`}
+                                                    />
+                                                </button>
+                                                <span>{r}</span>
+                                            </label>
+                                        );
+                                    })}
                                 </div>
                                 {editForm.errors.roles && (
                                     <p className="text-xs text-red-600">{editForm.errors.roles}</p>

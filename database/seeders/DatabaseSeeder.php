@@ -14,6 +14,7 @@ class DatabaseSeeder extends Seeder
      */
     public function run()
     {
+        $this->call(SuperAdminRoleSeeder::class);
         $this->call(UserSeeder::class);
         $this->call(PaymentMethodSeeder::class);
     }

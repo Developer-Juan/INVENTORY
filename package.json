@@ -21,7 +21,10 @@
     },
     "dependencies": {
         "@inertiajs/inertia": "^0.11.1",
+        "laravel-echo": "^2.3.0",
+        "pusher-js": "^8.4.0",
         "react-hot-toast": "^2.5.2",
+        "react-phone-input-2": "^2.15.1",
         "recharts": "^3.2.1"
     }
 }

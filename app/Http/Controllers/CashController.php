@@ -16,9 +16,8 @@ class CashController extends Controller
     public function index(Request $request)
     {
         $user = auth()->user();
-        $isAdmin = method_exists($user, 'hasRole')
-            ? ($user->hasRole('admin') || $user->hasRole('super-admin'))
-            : false;
+        $roles = $user ? $user->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin') || $roles->contains('super-admin');
 
         // === Ubicaciones con saldo de caja ===
         $locQuery = Location::query()
@@ -41,15 +40,14 @@ class CashController extends Controller
         $movesQuery = CashMove::query()
             ->with(['location:id,name', 'creator:id,name'])
             ->latest('id')
-            ->select('id', 'location_id', 'direction', 'amount', 'reason', 'note', 'created_by', 'created_at')
-            ->limit(50);
+            ->select('id', 'location_id', 'direction', 'amount', 'reason', 'note', 'created_by', 'created_at');
 
         // (Opcional) limitar movimientos a las ubicaciones visibles para no-admin
         // if (!$isAdmin) {
         //     $movesQuery->whereIn('location_id', $locations->pluck('id'));
         // }
 
-        $moves = $movesQuery->get();
+        $moves = $movesQuery->paginate(20)->withQueryString();
 
         $totalCash = round((float) $locations->sum('cash_on_hand'), 2);
 
@@ -64,7 +62,8 @@ class CashController extends Controller
     public function transfer(Request $request)
     {
         $actor = auth()->user();
-        if (!(method_exists($actor, 'hasRole') && ($actor->hasRole('admin') || $actor->hasRole('super-admin')))) {
+        $roles = $actor ? $actor->getRoleNames() : collect();
+        if (!($roles->contains('admin') || $roles->contains('super-admin'))) {
             abort(403);
         }
 
@@ -164,7 +163,8 @@ class CashController extends Controller
     public function pickup(Request $request)
     {
         $actor = auth()->user();
-        if (!(method_exists($actor, 'hasRole') && ($actor->hasRole('admin') || $actor->hasRole('super-admin')))) {
+        $roles = $actor ? $actor->getRoleNames() : collect();
+        if (!($roles->contains('admin') || $roles->contains('super-admin'))) {
             abort(403);
         }
 

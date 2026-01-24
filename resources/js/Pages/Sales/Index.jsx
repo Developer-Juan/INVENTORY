@@ -4,6 +4,8 @@ import { Head, usePage, Link, router } from '@inertiajs/react';
 import { Dialog, Popover, Transition, Portal } from '@headlessui/react';
 import toast from 'react-hot-toast';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import PhoneInput from 'react-phone-input-2';
+import 'react-phone-input-2/lib/style.css';
 
 function EyeIcon({ className = 'w-5 h-5' }) {
     return (
@@ -220,6 +222,7 @@ export default function Index() {
         deliverers = [],
         saleStatuses = {},   // <-- mapa tipo { pagado: 'Pagado', parcial: 'Parcial', ... }
         filters = {},        // <-- { dealer_id, from_date, to_date, payment_method_id, status }
+        pointsSettings = null,
         auth,
         errors = {},
         flash = {},
@@ -235,6 +238,15 @@ export default function Index() {
 
     const rows = Array.isArray(sales) ? sales : (sales?.data ?? []);
     const links = Array.isArray(sales) ? [] : (sales?.links ?? []);
+
+    const statusLabel = (status) => saleStatuses?.[status] ?? status;
+    const statusClass = (status) => {
+        if (status === 'pagado') return 'bg-green-100 text-green-800';
+        if (status === 'parcial') return 'bg-yellow-100 text-yellow-800';
+        if (status === 'anulada') return 'bg-gray-200 text-gray-700';
+        if (status === 'gift') return 'bg-indigo-100 text-indigo-800';
+        return 'bg-red-100 text-red-800';
+    };
 
     // ===================== Filtros (estado controlado) =====================
     const [dealerId, setDealerId] = useState(filters.dealer_id ?? '');
@@ -289,6 +301,26 @@ export default function Index() {
         const n = parseFloat(s);
         return Number.isFinite(n) ? n : '';
     };
+    const roundMoney = (value, digits = 2) => {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return 0;
+        const factor = 10 ** digits;
+        return Math.round((n + Number.EPSILON) * factor) / factor;
+    };
+    const formatMoney = (value) => {
+        const n = roundMoney(value);
+        const isInt = Math.abs(n - Math.round(n)) < 1e-9;
+        return n.toLocaleString('es-CO', {
+            minimumFractionDigits: isInt ? 0 : 2,
+            maximumFractionDigits: isInt ? 0 : 2,
+        });
+    };
+    const moneyToInput = (value) => {
+        const n = roundMoney(value);
+        if (!Number.isFinite(n)) return '';
+        return n % 1 === 0 ? String(Math.trunc(n)) : n.toFixed(2);
+    };
+
     const fmtQty = (q) => {
         const n = Number(q ?? 0);
         return Number.isFinite(n)
@@ -358,14 +390,22 @@ export default function Index() {
     // ===== Pago / deuda =====
     const [openPay, setOpenPay] = useState(false);
     const [selected, setSelected] = useState(null);
-    const [pd, setPd] = useState({ paid: 0, pay: 0, name: '', phone: '' });
+    const [pd, setPd] = useState({ paid: 0, pay: '', name: '', phone: '' });
     const [newDue, setNewDue] = useState(0);
 
     const [methodId, setMethodId] = useState(paymentMethods[0]?.id ?? null);
     const [reference, setReference] = useState('');
     const [customerId, setCustomerId] = useState('');
+    const [customer, setCustomer] = useState(null);
+    const [lookupLoading, setLookupLoading] = useState(false);
+    const [openCustomerModal, setOpenCustomerModal] = useState(false);
+    const [newCustomerName, setNewCustomerName] = useState('');
+    const [newCustomerPhone, setNewCustomerPhone] = useState('');
+    const [pointsRedeem, setPointsRedeem] = useState(0);
     const [deliveryId, setDeliveryId] = useState('');
     const [km, setKm] = useState('');
+
+    const pointValue = Number(pointsSettings?.value_per_point ?? 0);
 
     useEffect(() => {
         if (!methodId && paymentMethods.length) setMethodId(paymentMethods[0].id);
@@ -376,19 +416,61 @@ export default function Index() {
         if (flash.error) toast.error(flash.error);
     }, [flash]);
 
+    const pointsDiscount = useMemo(() => {
+        if (!customer || !(pointValue > 0)) return 0;
+        const pts = Math.max(0, Number(pointsRedeem || 0));
+        return Math.max(0, pts * pointValue);
+    }, [customer, pointValue, pointsRedeem]);
+
+    const maxPointsRedeem = useMemo(() => {
+        if (!customer || !(pointValue > 0)) return 0;
+        const byTotal = Math.floor(Number(totalSum || 0) / pointValue);
+        const byBalance = Number(customer.points_balance ?? 0);
+        return Math.max(0, Math.min(byTotal, byBalance));
+    }, [customer, pointValue, totalSum]);
+
+    useEffect(() => {
+        setPointsRedeem((prev) => Math.min(Number(prev || 0), maxPointsRedeem));
+    }, [maxPointsRedeem]);
+
+    const totalAfterDiscount = useMemo(() => {
+        if (!bulkFlow) return Number(totalSum);
+        return Math.max(0, Number(totalSum) - Number(pointsDiscount || 0));
+    }, [bulkFlow, totalSum, pointsDiscount]);
+
     useEffect(() => {
         if (bulkFlow) {
-            setNewDue(Math.max(0, Number(totalSum) - Number(pd.pay || 0)));
+            setNewDue(roundMoney(Math.max(0, Number(totalAfterDiscount) - Number(pd.pay || 0))));
         } else if (selected) {
             const bal = Number(
                 selected.balance ??
                 Math.max(0, (selected.total ?? 0) - (selected.paid ?? 0))
             );
-            setNewDue(Math.max(0, bal - Number(pd.pay || 0)));
+            setNewDue(roundMoney(Math.max(0, bal - Number(pd.pay || 0))));
         } else {
             setNewDue(0);
         }
-    }, [pd.pay, totalSum, bulkFlow, selected]);
+    }, [pd.pay, totalAfterDiscount, bulkFlow, selected]);
+
+    useEffect(() => {
+        if (!bulkFlow) return;
+        const cap = Number(totalAfterDiscount || 0);
+        setPd((prev) => {
+            const current = normalizeDecimal(prev.pay);
+            if (current === '' || Number(current) <= cap) return prev;
+            return { ...prev, pay: moneyToInput(cap) };
+        });
+    }, [totalAfterDiscount, bulkFlow]);
+
+    useEffect(() => {
+        if (bulkFlow && newDue > 0 && customer) {
+            setPd((d) => ({
+                ...d,
+                name: d.name || customer.name || '',
+                phone: d.phone || customer.phone || '',
+            }));
+        }
+    }, [bulkFlow, newDue, customer]);
 
     useEffect(() => { if (!deliveryId) setKm(''); }, [deliveryId]);
 
@@ -424,8 +506,10 @@ export default function Index() {
         if (!lines.length) return toast.error('Agrega productos con total > 0');
 
         setCartItems(lines);
-        setPd({ paid: 0, pay: Number(totalSum), name: '', phone: '' });
+        setPointsRedeem(0);
+        setPd({ paid: 0, pay: moneyToInput(totalSum), name: '', phone: '' });
         setCustomerId('');
+        setCustomer(null);
         setDeliveryId('');
         setKm('');
         setBulkFlow(true);
@@ -436,13 +520,13 @@ export default function Index() {
     function beginPay(sale) {
         setSelected(sale);
         setPd({
-            paid: Number(sale.paid ?? 0),
-            pay: Number(
+            paid: roundMoney(sale.paid ?? 0),
+            pay: moneyToInput(
                 sale.balance ??
                 Math.max(0, (sale.total ?? 0) - (sale.paid ?? 0))
             ),
-            name: '',
-            phone: '',
+            name: sale.debtor_name ?? sale.customer_user?.name ?? '',
+            phone: sale.debtor_phone ?? sale.customer_user?.phone ?? '',
         });
         setReference('');
         setBulkFlow(false);
@@ -458,20 +542,100 @@ export default function Index() {
         toast.error(msgs.join('\n') || 'Error al crear venta');
     }
 
+    const normalizePhone = (v) => String(v ?? '').replace(/\D+/g, '');
+    const csrfToken =
+        document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+    async function lookupCustomer(raw) {
+        const phone = normalizePhone(raw);
+        if (!phone) return toast.error('Ingresa un celular válido');
+
+        try {
+            setLookupLoading(true);
+            const res = await fetch(route('customers.lookup', { phone }), {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            if (!res.ok) {
+                throw new Error('Lookup failed');
+            }
+            const data = await res.json();
+            if (data?.found && data?.user) {
+                setCustomer(data.user);
+                setCustomerId(phone);
+                return;
+            }
+            setCustomer(null);
+            setNewCustomerName('');
+            setNewCustomerPhone(phone);
+            setOpenCustomerModal(true);
+        } catch (e) {
+            console.error(e);
+            toast.error('No se pudo consultar el cliente');
+        } finally {
+            setLookupLoading(false);
+        }
+    }
+
+    async function createCustomer() {
+        const phone = normalizePhone(newCustomerPhone);
+        if (!newCustomerName || !phone) {
+            return toast.error('Nombre y celular son obligatorios');
+        }
+        try {
+            setLookupLoading(true);
+            const res = await fetch(route('customers.store'), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': csrfToken,
+                },
+                body: JSON.stringify({
+                    name: newCustomerName,
+                    phone,
+                }),
+            });
+            if (!res.ok) {
+                let errMsg = 'Error al crear cliente';
+                try {
+                    const err = await res.json();
+                    if (err?.message) errMsg = err.message;
+                } catch {
+                    // ignore json parse
+                }
+                throw new Error(errMsg);
+            }
+            const data = await res.json();
+            if (data?.user) {
+                setCustomer(data.user);
+                setCustomerId(phone);
+                setOpenCustomerModal(false);
+            }
+        } catch (e) {
+            console.error(e);
+            toast.error('No se pudo crear el cliente');
+        } finally {
+            setLookupLoading(false);
+        }
+    }
+
     function submitPay(e) {
         e.preventDefault();
-        const amount = Number(pd.pay || 0);
-        if (amount <= 0) return toast.error('Ingresa un monto válido');
+        const amountRaw = normalizeDecimal(pd.pay);
+        if (amountRaw === '' || Number(amountRaw) <= 0) {
+            return toast.error('Ingresa un monto válido');
+        }
+        const amount = roundMoney(amountRaw);
         if (!methodId) return toast.error('Selecciona un método de pago');
 
         if (bulkFlow) {
             let customerIdStr = null;
             if (customerId !== '' && customerId != null) {
-                const n = Number(customerId);
-                if (!Number.isFinite(n) || n < 0 || n > 9999) {
-                    return toast.error('ID de cliente inválido (0–9999)');
+                const phone = normalizePhone(customerId);
+                if (phone.length < 7 || phone.length > 15) {
+                    return toast.error('Celular de cliente inválido (7–15 dígitos)');
                 }
-                customerIdStr = String(Math.floor(n)).padStart(4, '0');
+                customerIdStr = phone;
             }
             const hasDelivery = String(deliveryId || '') !== '';
             const kmVal = parseFloat(km || '0');
@@ -479,7 +643,7 @@ export default function Index() {
                 return toast.error('Ingresa los KM (> 0)');
             }
             if (
-                amount < totalSum &&
+                amount < totalAfterDiscount &&
                 (!pd.name || !pd.phone)
             ) {
                 return toast.error(
@@ -499,24 +663,33 @@ export default function Index() {
                         reference: reference || null,
                     },
                 ],
+                debtor_name: pd.name || null,
+                debtor_phone: pd.phone || null,
+                points_redeem: Math.min(
+                    Math.max(0, Number(pointsRedeem || 0)),
+                    Number(maxPointsRedeem || 0)
+                ),
             };
             if (hasDelivery) {
                 payload.delivery_id = Number(deliveryId);
                 payload.km = kmVal;
             }
 
-            router.post(route('sales.store'), payload, {
-                preserveScroll: true,
-                onStart: () => setSubmitting(true),
-                onFinish: () => setSubmitting(false),
-                onSuccess: () => {
-                    setOpenPay(false);
-                    setCart({});
-                    setLinePrice({});
-                    setDeliveryId('');
-                    setKm('');
-                    toast.success('Venta creada correctamente');
-                },
+                router.post(route('sales.store'), payload, {
+                    preserveScroll: true,
+                    onStart: () => setSubmitting(true),
+                    onFinish: () => setSubmitting(false),
+                    onSuccess: () => {
+                        setOpenPay(false);
+                        setCart({});
+                        setLinePrice({});
+                        setCustomer(null);
+                        setCustomerId('');
+                        setPointsRedeem(0);
+                        setDeliveryId('');
+                        setKm('');
+                        toast.success('Venta creada correctamente');
+                    },
                 onError: (errs) => {
                     console.error(errs);
                     showErrors(errs);
@@ -534,6 +707,8 @@ export default function Index() {
                 payment_method_id: methodId,
                 amount,
                 reference: reference || null,
+                debtor_name: pd.name || null,
+                debtor_phone: pd.phone || null,
             },
             {
                 preserveScroll: true,
@@ -706,16 +881,9 @@ export default function Index() {
                                 <div className="flex items-center justify-between">
                                     <div className="font-semibold">#{s.id}</div>
                                     <span
-                                        className={`text-xs px-2 py-1 rounded-full ${s.status === 'pagado'
-                                                ? 'bg-green-100 text-green-800'
-                                                : s.status === 'parcial'
-                                                    ? 'bg-yellow-100 text-yellow-800'
-                                                    : s.status === 'anulada'
-                                                        ? 'bg-gray-200 text-gray-700'
-                                                        : 'bg-red-100 text-red-800'
-                                            }`}
+                                        className={`text-xs px-2 py-1 rounded-full ${statusClass(s.status)}`}
                                     >
-                                        {s.status}
+                                        {statusLabel(s.status)}
                                     </span>
                                 </div>
 
@@ -750,20 +918,27 @@ export default function Index() {
 
                                     <div>
                                         <span className="text-gray-500">Total:</span>{' '}
-                                        ${Number(s.total).toLocaleString('es-CO')}
+                                        ${formatMoney(s.total)}
                                     </div>
                                     <div>
                                         <span className="text-gray-500">Pagado:</span>{' '}
-                                        ${Number(s.paid).toLocaleString('es-CO')}
+                                        ${formatMoney(s.paid)}
                                     </div>
                                     <div>
                                         <span className="text-gray-500">Saldo:</span>{' '}
-                                        ${Number(s.balance).toLocaleString('es-CO')}
+                                        ${formatMoney(s.balance)}
                                     </div>
+                                    {s.status === 'parcial' && (s.debtor_name || s.debtor_phone) && (
+                                        <div className="text-xs text-gray-600">
+                                            <span className="text-gray-500">Deudor:</span>{' '}
+                                            {s.debtor_name || '—'}
+                                            {s.debtor_phone ? ` · ${s.debtor_phone}` : ''}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="mt-3 flex gap-3">
-                                    {s.status !== 'pagado' && s.status !== 'anulada' && (
+                                    {s.status !== 'pagado' && s.status !== 'anulada' && s.status !== 'gift' && (
                                         <button
                                             onClick={() => beginPay(s)}
                                             className="flex-1 text-yellow-700 border border-yellow-300 rounded-md py-2"
@@ -859,32 +1034,25 @@ export default function Index() {
                                         </td>
 
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            ${Number(s.total).toLocaleString('es-CO')}
+                                            ${formatMoney(s.total)}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            ${Number(s.paid).toLocaleString('es-CO')}
+                                            ${formatMoney(s.paid)}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            ${Number(s.balance).toLocaleString('es-CO')}
+                                            ${formatMoney(s.balance)}
                                         </td>
 
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span
-                                                className={`px-2 py-1 rounded-full ${s.status === 'pagado'
-                                                        ? 'bg-green-100 text-green-800'
-                                                        : s.status === 'parcial'
-                                                            ? 'bg-yellow-100 text-yellow-800'
-                                                            : s.status === 'anulada'
-                                                                ? 'bg-gray-200 text-gray-700'
-                                                                : 'bg-red-100 text-red-800'
-                                                    }`}
+                                                className={`px-2 py-1 rounded-full ${statusClass(s.status)}`}
                                             >
-                                                {s.status}
+                                                {statusLabel(s.status)}
                                             </span>
                                         </td>
 
                                         <td className="px-6 py-4 whitespace-nowrap space-x-3">
-                                            {s.status !== 'pagado' && s.status !== 'anulada' && (
+                                            {s.status !== 'pagado' && s.status !== 'anulada' && s.status !== 'gift' && (
                                                 <button
                                                     onClick={() => beginPay(s)}
                                                     className="text-yellow-600 hover:text-yellow-900"
@@ -984,9 +1152,7 @@ export default function Index() {
                                         </p>
                                         <p className="text-xs md:text-sm text-gray-600">
                                             Precio catálogo (unidad): $
-                                            {Number(
-                                                prod.sale_price ?? 0
-                                            ).toLocaleString('es-CO')}
+                                            {formatMoney(prod.sale_price ?? 0)}
                                         </p>
 
                                         <input
@@ -1068,8 +1234,7 @@ export default function Index() {
                         <div className="p-4 md:p-5 border-t sticky bottom-0 bg-white z-10">
                             <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 justify-between">
                                 <div className="text-base md:text-lg font-semibold">
-                                    Total: $
-                                    {Number(totalSum).toLocaleString('es-CO')}
+                                    Total: ${formatMoney(totalSum)}
                                 </div>
                                 <button
                                     onClick={doCheckout}
@@ -1084,7 +1249,14 @@ export default function Index() {
             </Dialog>
 
             {/* ===== Modal Pago / Deuda ===== */}
-            <Dialog open={openPay} onClose={() => setOpenPay(false)} className="relative z-50">
+            <Dialog
+                open={openPay}
+                onClose={() => {
+                    if (openCustomerModal) return;
+                    setOpenPay(false);
+                }}
+                className="relative z-50"
+            >
                 <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
                 <div className="fixed inset-0 flex items-center justify-center p-0 md:p-4">
                     <form
@@ -1113,21 +1285,37 @@ export default function Index() {
                                 <>
                                     <div>
                                         <label className="block text-sm">
-                                            ID Cliente (4 dígitos,
-                                            opcional)
+                                            Celular cliente (opcional)
                                         </label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            max="9999"
-                                            step="1"
-                                            className="mt-1 w-full border px-3 py-2 rounded-md"
-                                            value={customerId}
-                                            onChange={(e) =>
-                                                setCustomerId(e.target.value)
-                                            }
-                                            placeholder="0000"
-                                        />
+                                        <div className="mt-1 flex gap-2">
+                                            <div className="flex-1">
+                                                <PhoneInput
+                                                    country="co"
+                                                    value={customerId}
+                                                    onChange={(value) =>
+                                                        setCustomerId(value)
+                                                    }
+                                                    inputClass="w-full"
+                                                    inputStyle={{
+                                                        width: '100%',
+                                                        height: '40px',
+                                                    }}
+                                                />
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => lookupCustomer(customerId)}
+                                                className="px-3 py-2 border rounded-md"
+                                                disabled={lookupLoading}
+                                            >
+                                                {lookupLoading ? 'Buscando…' : 'Buscar'}
+                                            </button>
+                                        </div>
+                                        {customer && (
+                                            <p className="text-xs text-gray-600 mt-1">
+                                                Cliente: {customer.name} · {customer.phone}
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div>
@@ -1207,27 +1395,65 @@ export default function Index() {
                             <div>
                                 <label className="block text-sm">Total</label>
                                 <div className="mt-1 font-medium">
-                                    $
-                                    {Number(
+                                    ${formatMoney(
                                         bulkFlow
-                                            ? totalSum
+                                            ? totalAfterDiscount
                                             : selected?.total || 0
-                                    ).toLocaleString('es-CO')}
+                                    )}
                                 </div>
                             </div>
+
+                            {bulkFlow && customer && pointValue > 0 && (
+                                <div>
+                                    <label className="block text-sm">
+                                        Puntos disponibles
+                                    </label>
+                                    <div className="mt-1 text-sm text-gray-600">
+                                        {Number(customer.points_balance ?? 0).toLocaleString('es-CO')} pts
+                                        {' · '}Valor: ${Number(pointValue).toLocaleString('es-CO')} c/u
+                                    </div>
+                                    <div className="mt-2">
+                                        <label className="block text-sm">
+                                            Puntos a redimir
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            className="mt-1 w-full border px-3 py-2 rounded-md"
+                                            value={pointsRedeem}
+                                            onChange={(e) =>
+                                                setPointsRedeem(() => {
+                                                    const raw = Math.max(0, Number(e.target.value || 0));
+                                                    const maxPts = Number(maxPointsRedeem || 0);
+                                                    return Math.min(raw, maxPts);
+                                                })
+                                            }
+                                        />
+                                    </div>
+                                    {pointsDiscount > 0 && (
+                                        <div className="mt-2 text-sm text-gray-600">
+                                            Descuento por puntos: -$
+                                            {Number(pointsDiscount).toLocaleString('es-CO')}
+                                        </div>
+                                    )}
+                                    {maxPointsRedeem === 0 && (
+                                        <div className="mt-2 text-xs text-gray-500">
+                                            No hay puntos disponibles para redimir en esta venta.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             {!bulkFlow && selected && (
                                 <div>
                                     <label className="block text-sm">
                                         Ya pagado
                                     </label>
-                                    <div className="mt-1">
-                                        $
-                                        {Number(pd.paid).toLocaleString(
-                                            'es-CO'
-                                        )}
-                                    </div>
+                                <div className="mt-1">
+                                        ${formatMoney(pd.paid)}
                                 </div>
+                            </div>
                             )}
 
                             <div>
@@ -1247,10 +1473,7 @@ export default function Index() {
                                     onChange={(e) =>
                                         setPd((d) => ({
                                             ...d,
-                                            pay:
-                                                parseFloat(
-                                                    e.target.value
-                                                ) || 0,
+                                            pay: e.target.value,
                                         }))
                                     }
                                 />
@@ -1276,10 +1499,7 @@ export default function Index() {
                                     Saldo pendiente:
                                 </label>
                                 <div className="mt-1">
-                                    $
-                                    {Number(newDue).toLocaleString(
-                                        'es-CO'
-                                    )}
+                                    ${formatMoney(newDue)}
                                 </div>
                             </div>
 
@@ -1348,6 +1568,70 @@ export default function Index() {
                             </div>
                         </div>
                     </form>
+                </div>
+            </Dialog>
+
+            {/* ===== Modal Crear Cliente ===== */}
+            <Dialog open={openCustomerModal} onClose={() => setOpenCustomerModal(false)} className="relative z-50">
+                <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
+                <div className="fixed inset-0 flex items-center justify-center p-4">
+                    <div className="w-full max-w-md bg-white rounded-xl shadow-xl p-4 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-base font-semibold">Registrar cliente</h3>
+                            <button
+                                type="button"
+                                onClick={() => setOpenCustomerModal(false)}
+                                className="text-gray-500 hover:text-gray-700"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm">Nombre</label>
+                            <input
+                                type="text"
+                                className="mt-1 w-full border px-3 py-2 rounded-md"
+                                value={newCustomerName}
+                                onChange={(e) => setNewCustomerName(e.target.value)}
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm">Celular</label>
+                            <div className="mt-1">
+                                <PhoneInput
+                                    country="co"
+                                    value={newCustomerPhone}
+                                    onChange={(value) => setNewCustomerPhone(value)}
+                                    inputClass="w-full"
+                                    inputStyle={{
+                                        width: '100%',
+                                        height: '40px',
+                                    }}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex gap-2 justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setOpenCustomerModal(false)}
+                                className="px-4 py-2 border rounded-md"
+                                disabled={lookupLoading}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={createCustomer}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-md"
+                                disabled={lookupLoading}
+                            >
+                                {lookupLoading ? 'Guardando…' : 'Guardar'}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </Dialog>
         </AuthenticatedLayout>
