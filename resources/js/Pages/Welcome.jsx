@@ -1,15 +1,124 @@
 import { Link, Head } from '@inertiajs/react';
+import { useEffect, useMemo, useState } from 'react';
 
 export default function Welcome(props) {
+    const [navScrolled, setNavScrolled] = useState(false);
+    const appName = props.appName || 'App';
+    const appUrl = props.appUrl || '';
+    const description =
+        'Suite integral para inventario, ventas, puntos, soporte y calidad de servicio. Control en tiempo real, reportes claros y operacion sin fricciones.';
+    const ogImage = `${appUrl}/og-cover.jpg`;
+
+    const sectionIds = useMemo(() => ['hero', 'alcance', 'widgets', 'demo'], []);
+
+    const scrollToSection = (id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const headerOffset = 96;
+        const elementTop = el.getBoundingClientRect().top + window.pageYOffset;
+        const targetTop = Math.max(0, elementTop - headerOffset);
+        window.scrollTo({ top: targetTop, behavior: 'smooth' });
+    };
+
+    const scrollToRelativeSection = (direction) => {
+        const targets = sectionIds
+            .map((id) => document.getElementById(id))
+            .filter(Boolean);
+        if (!targets.length) return;
+        const top = window.scrollY + 8;
+        const positions = targets.map((el) => ({
+            id: el.id,
+            top: el.offsetTop,
+        }));
+        const currentIndex = positions.findIndex((item, index) => {
+            const next = positions[index + 1];
+            if (!next) return top >= item.top;
+            return top >= item.top && top < next.top;
+        });
+        const nextIndex =
+            direction === 'down'
+                ? Math.min(positions.length - 1, currentIndex + 1)
+                : Math.max(0, currentIndex - 1);
+        const targetId = positions[nextIndex]?.id;
+        if (targetId) {
+            scrollToSection(targetId);
+        }
+    };
+
+    useEffect(() => {
+        const onScroll = () => {
+            setNavScrolled(window.scrollY > 12);
+        };
+        onScroll();
+        window.addEventListener('scroll', onScroll, { passive: true });
+        return () => window.removeEventListener('scroll', onScroll);
+    }, []);
+
+    useEffect(() => {
+        const elements = Array.from(document.querySelectorAll('.reveal-on-nav'));
+        if (!elements.length) return undefined;
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('is-visible');
+                    }
+                });
+            },
+            { threshold: 0.18 }
+        );
+        elements.forEach((el) => observer.observe(el));
+        return () => observer.disconnect();
+    }, []);
+
     return (
         <>
-            <Head title={`${props.appName || 'App'} | Control total de tu operacion`} />
-            <div className="relative overflow-hidden bg-sand-50 text-ink-900">
+            <Head title={`${appName} | Control total de tu operacion`}>
+                <meta name="description" content={description} />
+                <meta name="robots" content="index,follow,max-image-preview:large" />
+                <link rel="canonical" href={appUrl} />
+                <meta property="og:type" content="website" />
+                <meta property="og:site_name" content={appName} />
+                <meta property="og:title" content={`${appName} | Control total de tu operacion`} />
+                <meta property="og:description" content={description} />
+                <meta property="og:url" content={appUrl} />
+                <meta property="og:image" content={ogImage} />
+                <meta name="twitter:card" content="summary_large_image" />
+                <meta name="twitter:title" content={`${appName} | Control total de tu operacion`} />
+                <meta name="twitter:description" content={description} />
+                <meta name="twitter:image" content={ogImage} />
+                <script
+                    type="application/ld+json"
+                    dangerouslySetInnerHTML={{
+                        __html: JSON.stringify({
+                            '@context': 'https://schema.org',
+                            '@type': 'SoftwareApplication',
+                            name: appName,
+                            url: appUrl,
+                            applicationCategory: 'BusinessApplication',
+                            operatingSystem: 'Web',
+                            description,
+                            offers: {
+                                '@type': 'Offer',
+                                price: '0',
+                                priceCurrency: 'USD',
+                            },
+                        }),
+                    }}
+                />
+            </Head>
+            <div className="relative overflow-x-hidden bg-sand-50 text-ink-900">
                 <div className="pointer-events-none absolute -top-24 right-0 h-[520px] w-[520px] rounded-full bg-aurora-1 blur-[120px]" />
                 <div className="pointer-events-none absolute -bottom-40 -left-10 h-[520px] w-[520px] rounded-full bg-aurora-2 blur-[140px]" />
                 <div className="absolute inset-0 bg-grid-pattern opacity-70" />
 
-                <header className="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6">
+                <header
+                    className={`sticky top-0 z-30 mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 transition-all duration-300 ${
+                        navScrolled
+                            ? 'navbar-scrolled shadow-[0_18px_50px_rgba(23,20,21,0.12)]'
+                            : 'navbar-top'
+                    }`}
+                >
                     <div className="flex items-center gap-3">
                         <div className="grid h-10 w-10 place-items-center rounded-2xl bg-ink-900 text-sand-50">
                             <span className="font-display text-lg">DM</span>
@@ -57,8 +166,29 @@ export default function Welcome(props) {
                 </header>
 
                 <main className="relative z-10">
-                    <section className="mx-auto grid w-full max-w-6xl items-center gap-12 px-6 pb-20 pt-10 lg:grid-cols-[1.1fr_0.9fr] lg:pt-16">
-                        <div className="space-y-6">
+                    <div className="arrow-nav">
+                        <button
+                            type="button"
+                            className="arrow-btn"
+                            aria-label="Ir arriba"
+                            onClick={() => scrollToRelativeSection('up')}
+                        >
+                            ↑
+                        </button>
+                        <button
+                            type="button"
+                            className="arrow-btn"
+                            aria-label="Ir abajo"
+                            onClick={() => scrollToRelativeSection('down')}
+                        >
+                            ↓
+                        </button>
+                    </div>
+                    <section
+                        id="hero"
+                        className="mx-auto grid w-full max-w-6xl items-center gap-12 px-6 pb-20 pt-10 lg:grid-cols-[1.1fr_0.9fr] lg:pt-16"
+                    >
+                        <div className="space-y-6 reveal-on-nav">
                             <div className="inline-flex items-center gap-2 rounded-full border border-ink-200 bg-sand-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-ink-500 shadow-sm">
                                 Plataforma todo en uno
                             </div>
@@ -71,18 +201,20 @@ export default function Welcome(props) {
                                 Todo sincronizado, visual y listo para escalar.
                             </p>
                             <div className="flex flex-wrap items-center gap-4">
-                                <a
-                                    href="#demo"
+                                <button
+                                    type="button"
                                     className="rounded-full bg-ink-900 px-6 py-3 text-sm font-semibold text-sand-50 transition hover:-translate-y-0.5 hover:shadow-xl"
+                                    onClick={() => scrollToSection('demo')}
                                 >
                                     Solicitar demo
-                                </a>
-                                <a
-                                    href="#alcance"
+                                </button>
+                                <button
+                                    type="button"
                                     className="rounded-full border border-ink-300 px-6 py-3 text-sm font-semibold text-ink-700 transition hover:border-ink-900 hover:text-ink-900"
+                                    onClick={() => scrollToSection('alcance')}
                                 >
                                     Ver alcance
-                                </a>
+                                </button>
                             </div>
                             <div className="flex flex-wrap gap-6 pt-4 text-sm text-ink-500">
                                 <div>
@@ -100,10 +232,10 @@ export default function Welcome(props) {
                             </div>
                         </div>
 
-                        <div className="relative">
+                        <div className="relative reveal-on-nav">
                             <div className="absolute -right-6 top-6 hidden h-24 w-24 rounded-3xl bg-ink-900 opacity-10 blur-lg lg:block" />
                             <div className="relative space-y-4">
-                                <div className="widget-card widget-float-1">
+                                <div className="widget-card widget-float-1 reveal-on-nav">
                                     <div className="flex items-center justify-between">
                                         <p className="text-xs uppercase tracking-[0.2em] text-ink-500">
                                             Inventario en vivo
@@ -119,7 +251,7 @@ export default function Welcome(props) {
                                     </div>
                                 </div>
 
-                                <div className="widget-card widget-float-2">
+                                <div className="widget-card widget-float-2 reveal-on-nav">
                                     <div className="flex items-center justify-between">
                                         <p className="text-xs uppercase tracking-[0.2em] text-ink-500">
                                             Ventas hoy
@@ -139,7 +271,7 @@ export default function Welcome(props) {
                                     </div>
                                 </div>
 
-                                <div className="widget-card widget-float-3">
+                                <div className="widget-card widget-float-3 reveal-on-nav">
                                     <div className="flex items-center justify-between">
                                         <p className="text-xs uppercase tracking-[0.2em] text-ink-500">
                                             Puntos y fidelizacion
@@ -160,9 +292,9 @@ export default function Welcome(props) {
                         </div>
                     </section>
 
-                    <section id="alcance" className="mx-auto w-full max-w-6xl px-6 pb-20">
+                    <section id="alcance" className="mx-auto w-full max-w-6xl scroll-mt-28 px-6 pb-20">
                         <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr]">
-                            <div className="space-y-4">
+                            <div className="space-y-4 reveal-on-nav">
                                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-ink-500">
                                     Alcance total
                                 </p>
@@ -200,8 +332,12 @@ export default function Welcome(props) {
                                         title: 'Stock inteligente',
                                         text: 'Alertas de minimos, resumen de inventario y balance.',
                                     },
-                                ].map((item) => (
-                                    <div key={item.title} className="feature-card">
+                                ].map((item, index) => (
+                                    <div
+                                        key={item.title}
+                                        className="feature-card reveal-on-nav"
+                                        style={{ transitionDelay: `${index * 0.08}s` }}
+                                    >
                                         <h3 className="font-display text-lg text-ink-900">{item.title}</h3>
                                         <p className="mt-2 text-sm text-ink-600">{item.text}</p>
                                     </div>
@@ -210,10 +346,10 @@ export default function Welcome(props) {
                         </div>
                     </section>
 
-                    <section id="widgets" className="mx-auto w-full max-w-6xl px-6 pb-20">
-                        <div className="rounded-[32px] bg-ink-900 px-8 py-12 text-sand-50">
+                    <section id="widgets" className="mx-auto w-full max-w-6xl scroll-mt-28 px-6 pb-20">
+                        <div className="rounded-[32px] bg-ink-900 px-8 py-12 text-sand-50 reveal-on-nav">
                             <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr]">
-                                <div className="space-y-4">
+                                <div className="space-y-4 reveal-on-nav">
                                     <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-200">
                                         Widgets animados
                                     </p>
@@ -231,7 +367,7 @@ export default function Welcome(props) {
                                     </div>
                                 </div>
                                 <div className="space-y-4">
-                                    <div className="rounded-3xl bg-sand-50-10 p-6">
+                                    <div className="rounded-3xl bg-sand-50-10 p-6 reveal-on-nav">
                                         <p className="text-xs uppercase tracking-[0.3em] text-sand-200">
                                             Radar operacional
                                         </p>
@@ -253,7 +389,7 @@ export default function Welcome(props) {
                                             ))}
                                         </div>
                                     </div>
-                                    <div className="rounded-3xl bg-sand-50-10 p-6">
+                                    <div className="rounded-3xl bg-sand-50-10 p-6 reveal-on-nav">
                                         <p className="text-xs uppercase tracking-[0.3em] text-sand-200">Clientes</p>
                                         <div className="mt-4 flex items-center justify-between text-sm">
                                             <span>Recurrencia</span>
@@ -271,9 +407,9 @@ export default function Welcome(props) {
                         </div>
                     </section>
 
-                    <section id="demo" className="mx-auto w-full max-w-6xl px-6 pb-24">
-                        <div className="grid gap-10 rounded-[32px] border border-ink-200 bg-sand-50 px-8 py-12 lg:grid-cols-[1fr_0.9fr]">
-                            <div className="space-y-4">
+                    <section id="demo" className="mx-auto w-full max-w-6xl scroll-mt-28 px-6 pb-24">
+                        <div className="grid gap-10 rounded-[32px] border border-ink-200 bg-sand-50 px-8 py-12 lg:grid-cols-[1fr_0.9fr] reveal-on-nav">
+                            <div className="space-y-4 reveal-on-nav">
                                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-ink-500">
                                     Solicita un demo
                                 </p>
@@ -291,7 +427,7 @@ export default function Welcome(props) {
                                     </p>
                                 </div>
                             </div>
-                            <form className="space-y-4">
+                            <form className="space-y-4 reveal-on-nav">
                                 <div>
                                     <label className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-500">
                                         Nombre completo
@@ -359,7 +495,7 @@ export default function Welcome(props) {
                 </main>
 
                 <footer className="relative z-10 border-t border-ink-200 px-6 py-8 text-center text-xs text-ink-500">
-                    {props.appName || 'App'} (c) {new Date().getFullYear()} - Operacion clara, clientes felices.
+                    {props.appName || 'App'} (©) {new Date().getFullYear()} - Operacion clara, clientes felices.
                     <span className="ml-2 text-ink-400">
                         Laravel v{props.laravelVersion} (PHP v{props.phpVersion})
                     </span>
@@ -387,6 +523,22 @@ export default function Welcome(props) {
 
                 body {
                     font-family: 'Plus Jakarta Sans', sans-serif;
+                }
+
+                html {
+                    scroll-behavior: smooth;
+                    scrollbar-width: none;
+                    -ms-overflow-style: none;
+                }
+
+                body {
+                    scrollbar-width: none;
+                    -ms-overflow-style: none;
+                }
+
+                *::-webkit-scrollbar {
+                    width: 0;
+                    height: 0;
                 }
 
                 .bg-sand-50 {
@@ -440,6 +592,79 @@ export default function Welcome(props) {
                 .bg-grid-pattern {
                     background-image: radial-gradient(circle at 1px 1px, rgba(23, 20, 21, 0.08) 1px, transparent 0);
                     background-size: 28px 28px;
+                }
+
+                .navbar-top {
+                    background: rgba(248, 245, 240, 0.6);
+                    border-radius: 999px;
+                    border: 1px solid rgba(207, 199, 195, 0.3);
+                    margin-top: 12px;
+                }
+
+                .navbar-scrolled {
+                    background: rgba(248, 245, 240, 0.92);
+                    border-radius: 22px;
+                    border: 1px solid rgba(23, 20, 21, 0.08);
+                    margin-top: 0;
+                }
+
+                .arrow-nav {
+                    position: fixed;
+                    right: 24px;
+                    bottom: 32px;
+                    z-index: 40;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                }
+
+                .arrow-btn {
+                    height: 46px;
+                    width: 46px;
+                    border-radius: 16px;
+                    border: 1px solid rgba(23, 20, 21, 0.15);
+                    background: rgba(248, 245, 240, 0.85);
+                    color: var(--ink-700);
+                    font-size: 20px;
+                    display: grid;
+                    place-items: center;
+                    transition: transform 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
+                    animation: float 5s ease-in-out infinite;
+                }
+
+                .arrow-btn:hover {
+                    transform: translateY(-2px);
+                    background: rgba(248, 245, 240, 0.98);
+                    box-shadow: 0 18px 40px rgba(23, 20, 21, 0.16);
+                }
+
+                .arrow-btn:nth-child(2) {
+                    animation-delay: 0.6s;
+                }
+
+                .reveal-on-nav {
+                    opacity: 0;
+                    transform: translateY(24px) scale(0.98);
+                    transition: opacity 0.7s ease, transform 0.7s ease;
+                    will-change: transform, opacity;
+                }
+
+                .reveal-on-nav.is-visible {
+                    opacity: 1;
+                    transform: translateY(0) scale(1);
+                }
+
+                @media (max-width: 900px) {
+                    .arrow-nav {
+                        right: 12px;
+                    }
+                }
+
+                @media (max-width: 720px) {
+                    .arrow-nav {
+                        right: 12px;
+                        bottom: 20px;
+                    }
                 }
 
                 .text-sand-50 {
@@ -554,6 +779,3 @@ export default function Welcome(props) {
         </>
     );
 }
-
-
-
