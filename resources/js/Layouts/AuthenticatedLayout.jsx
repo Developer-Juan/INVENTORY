@@ -526,6 +526,14 @@ export default function Authenticated({ auth, header, children }) {
                         </ResponsiveNavLink>
                             {isSuperAdmin && (
                                 <ResponsiveNavLink
+                                    href={route('super-admin.approvals')}
+                                    active={route().current('super-admin.approvals')}
+                                >
+                                    Aprobaciones
+                                </ResponsiveNavLink>
+                            )}
+                            {isSuperAdmin && (
+                                <ResponsiveNavLink
                                     href={route('super-admin.users.index')}
                                     active={route().current('super-admin.users.index')}
                                 >
