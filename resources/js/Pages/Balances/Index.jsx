@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Head, usePage, router } from "@inertiajs/react";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import toast from "react-hot-toast";
+import { confirmToast } from '@/Components/ConfirmToast';
 
 export default function BalancesIndex() {
     const {
@@ -95,24 +96,21 @@ export default function BalancesIndex() {
             toast.error("No hay pagos pendientes para este dealer.");
             return;
         }
-
-        if (
-            !confirm(
-                `¿Liquidar ${fmtMoney(monto)} en domicilios pendientes para este dealer/punto?`
-            )
-        ) {
-            return;
-        }
-
-        router.post(
-            route("balances.settle", dealerLocationId),
-            { from_date: fromDate || "", to_date: toDate || "" },
-            {
-                preserveScroll: true,
-                onSuccess: () => toast.success("Pagos liquidados correctamente."),
-                onError: () => toast.error("Error al liquidar pagos."),
-            }
-        );
+        confirmToast({
+            message: `¿Liquidar ${fmtMoney(monto)} en domicilios pendientes para este dealer/punto?`,
+            confirmText: 'Liquidar',
+            onConfirm: () => {
+                router.post(
+                    route("balances.settle", dealerLocationId),
+                    { from_date: fromDate || "", to_date: toDate || "" },
+                    {
+                        preserveScroll: true,
+                        onSuccess: () => toast.success("Pagos liquidados correctamente."),
+                        onError: () => toast.error("Error al liquidar pagos."),
+                    }
+                );
+            },
+        });
     }
 
     // === Acción INDIVIDUAL: pagar SOLO una venta específica ===
@@ -123,15 +121,16 @@ export default function BalancesIndex() {
             toast.error("Esta venta no tiene pago pendiente de domicilio.");
             return;
         }
-
-        if (!confirm(`¿Marcar como pagado el domicilio de ${fmtMoney(m)} para la venta #${saleId}?`)) {
-            return;
-        }
-
-        router.post(route("sales.delivery.settle", saleId), {}, {
-            preserveScroll: true,
-            onSuccess: () => toast.success(`Venta #${saleId}: domicilio marcado pagado.`),
-            onError: () => toast.error("No se pudo marcar como pagado."),
+        confirmToast({
+            message: `¿Marcar como pagado el domicilio de ${fmtMoney(m)} para la venta #${saleId}?`,
+            confirmText: 'Marcar',
+            onConfirm: () => {
+                router.post(route("sales.delivery.settle", saleId), {}, {
+                    preserveScroll: true,
+                    onSuccess: () => toast.success(`Venta #${saleId}: domicilio marcado pagado.`),
+                    onError: () => toast.error("No se pudo marcar como pagado."),
+                });
+            },
         });
     }
 

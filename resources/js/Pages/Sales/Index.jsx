@@ -3,6 +3,8 @@ import React, { useState, useEffect, useMemo, useRef, Fragment } from 'react';
 import { Head, usePage, Link, router } from '@inertiajs/react';
 import { Dialog, Popover, Transition, Portal } from '@headlessui/react';
 import toast from 'react-hot-toast';
+import { confirmToast } from '@/Components/ConfirmToast';
+import { promptToast } from '@/Components/PromptToast';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
@@ -355,20 +357,32 @@ export default function Index() {
     // ===== Anular venta =====
     function cancelSale(s) {
         if (!s) return;
-        const reason = window.prompt('Motivo de anulación (opcional):', '');
-        if (!window.confirm(`¿Anular la venta #${s.id}? Esto devolverá el stock.`)) return;
-
-        router.post(
-            route('sales.cancel', s.id),
-            { reason: reason || null },
-            {
-                preserveScroll: true,
-                onStart: () => setSubmitting(true),
-                onFinish: () => setSubmitting(false),
-                onSuccess: () => toast.success(`Venta #${s.id} anulada`),
-                onError: (errs) => { console.error(errs); showErrors(errs); },
-            }
-        );
+        promptToast({
+            message: 'Motivo de anulación (opcional):',
+            placeholder: 'Escribe el motivo',
+            confirmText: 'Continuar',
+            cancelText: 'Cancelar',
+            onConfirm: (reasonInput) => {
+                const reason = String(reasonInput ?? '').trim();
+                confirmToast({
+                    message: `¿Anular la venta #${s.id}? Esto devolverá el stock.`,
+                    confirmText: 'Anular',
+                    onConfirm: () => {
+                        router.post(
+                            route('sales.cancel', s.id),
+                            { reason: reason || null },
+                            {
+                                preserveScroll: true,
+                                onStart: () => setSubmitting(true),
+                                onFinish: () => setSubmitting(false),
+                                onSuccess: () => toast.success(`Venta #${s.id} anulada`),
+                                onError: (errs) => { console.error(errs); showErrors(errs); },
+                            }
+                        );
+                    },
+                });
+            },
+        });
     }
 
     // ===== Total carrito =====
@@ -860,6 +874,7 @@ export default function Index() {
                             Limpiar
                         </button>
                     </div>
+
                 </form>
 
                 {/* BOTÓN NUEVA VENTA */}

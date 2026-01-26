@@ -16,6 +16,7 @@ use App\Models\SaleItem;
 use App\Models\SaleVoid;
 use App\Models\ServiceQualityToken;
 use App\Models\User;
+use App\Notifications\NewSaleNotification;
 use App\Services\DeliveryFare;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
@@ -25,6 +26,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Illuminate\Support\Str;
+use Spatie\Permission\Models\Role;
 
 class SaleController extends Controller
 {
@@ -743,6 +745,13 @@ class SaleController extends Controller
                 return $sale;
             });
 
+            $sale->load(['user:id,name', 'customerUser:id,name,phone']);
+            $roleNames = Role::whereIn('name', ['admin', 'super-admin'])->pluck('name');
+            $admins = $roleNames->isEmpty() ? collect() : User::role($roleNames)->get();
+            foreach ($admins as $admin) {
+                $admin->notify(new NewSaleNotification($sale));
+            }
+
             return redirect()->route('sales.show', $sale)->with('success', 'Venta creada #' . $sale->id);
 
         } catch (ValidationException $ve) {
@@ -1209,7 +1218,6 @@ class SaleController extends Controller
             'note' => $note,
         ]);
     }
-
 
     /**
      * Distribuye un monto (efectivo de la venta) entre ubicaciones según el total de líneas por ubicación.

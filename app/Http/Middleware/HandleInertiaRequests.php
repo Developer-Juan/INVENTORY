@@ -8,6 +8,7 @@ use Tightenco\Ziggy\Ziggy;
 use Illuminate\Support\Facades\Vite; // ← IMPORTA ESTO
 use App\Models\ServiceQualityReview;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -27,7 +28,16 @@ class HandleInertiaRequests extends Middleware
 
     public function share(Request $request): array
     {
+        $user = $request->user();
+        if ($user && Schema::hasColumn('users', 'last_seen_at')) {
+            $lastSeen = $user->last_seen_at;
+            if (!$lastSeen || $lastSeen->lt(now()->subMinute())) {
+                $user->forceFill(['last_seen_at' => now()])->save();
+            }
+        }
+
         return array_merge(parent::share($request), [
+            'appVersion' => config('app.version'),
             'auth' => [
                 // Carga ligera del usuario con roles (Spatie)
                 'user' => fn() => $request->user()
@@ -128,3 +138,5 @@ class HandleInertiaRequests extends Middleware
     }
 
 }
+
+

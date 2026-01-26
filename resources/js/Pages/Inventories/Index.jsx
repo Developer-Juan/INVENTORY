@@ -4,6 +4,7 @@ import { Head, useForm, usePage, Link } from '@inertiajs/react';
 import { Dialog } from '@headlessui/react';
 import { Inertia } from '@inertiajs/inertia';
 import toast from 'react-hot-toast';
+import { confirmToast } from '@/Components/ConfirmToast';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 
 export default function Index() {
@@ -130,9 +131,11 @@ export default function Index() {
     }
 
     function handleDelete(id) {
-        if (confirm('¿Seguro que deseas eliminar este ítem?')) {
-            deleteForm.delete(`/inventories/${id}`);
-        }
+        confirmToast({
+            message: '¿Seguro que deseas eliminar este ítem?',
+            confirmText: 'Eliminar',
+            onConfirm: () => deleteForm.delete(`/inventories/${id}`),
+        });
     }
 
     function saveMinStock(inventoryId, value) {

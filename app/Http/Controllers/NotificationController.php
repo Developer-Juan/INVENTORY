@@ -19,9 +19,18 @@ class NotificationController extends Controller
 
         $user->unreadNotifications->markAsRead();
 
-        $notifications = $user->notifications()
-            ->latest()
+        $filter = $request->input('filter', 'all');
+
+        $notificationsQuery = $user->notifications()->latest();
+        if ($filter === 'tickets') {
+            $notificationsQuery->where('data->type', 'support_ticket_new');
+        } elseif ($filter === 'admin_requests') {
+            $notificationsQuery->where('data->type', 'admin_request');
+        }
+
+        $notifications = $notificationsQuery
             ->paginate(15)
+            ->withQueryString()
             ->through(function ($n) {
                 $data = $n->data ?? [];
                 return [
@@ -45,6 +54,9 @@ class NotificationController extends Controller
         return Inertia::render('Notifications/Index', [
             'notifications' => $notifications,
             'isAdmin' => $request->user()->hasRole('admin'),
+            'filters' => [
+                'filter' => $filter,
+            ],
         ]);
     }
 

@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Head, Link, useForm, usePage } from '@inertiajs/react';
 import { Dialog } from '@headlessui/react';
 import toast from 'react-hot-toast';
+import { confirmToast } from '@/Components/ConfirmToast';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 
 const Badge = ({ children }) => (
@@ -20,6 +21,9 @@ export default function UsersIndex() {
         locations = [],
         flash = {},
     } = usePage().props;
+
+    const myRoles = (auth?.user?.roles ?? []).map((r) => r.name);
+    const isSuperAdmin = myRoles.includes('super-admin');
 
     const rows = Array.isArray(payload) ? payload : payload?.data ?? [];
     const links = Array.isArray(payload) ? [] : payload?.links ?? [];
@@ -40,6 +44,7 @@ export default function UsersIndex() {
         password: '',
         password_confirmation: '',
         roles: [],
+        status: 'active_working',
         location_id: '',
         create_location: false,
         new_location_name: '',
@@ -52,6 +57,7 @@ export default function UsersIndex() {
         password: '',
         password_confirmation: '',
         roles: [],
+        status: 'active_working',
         location_id: '',
         // nuevos para renombrar:
         rename_location: false,
@@ -69,12 +75,16 @@ export default function UsersIndex() {
             password: '',
             password_confirmation: '',
             roles: (u.roles || []).map((r) => r.name),
+            status: u.status || 'active_working',
             location_id: locId,
             rename_location: false,
             location_name: u.location?.name || '',
         });
         setOpenEdit(true);
     }
+
+    const isAdminTarget = (roleList) =>
+        roleList.includes('admin') || roleList.includes('super-admin');
 
     function onToggleRole(form, roleName) {
         const has = form.data.roles.includes(roleName);
@@ -106,10 +116,12 @@ export default function UsersIndex() {
     }
 
     function destroyUser(id) {
-        if (!confirm('¿Eliminar este usuario?')) return;
-        delForm.delete(route('users.destroy', id), { preserveScroll: true });
+        confirmToast({
+            message: '¿Eliminar este usuario?',
+            confirmText: 'Eliminar',
+            onConfirm: () => delForm.delete(route('users.destroy', id), { preserveScroll: true }),
+        });
     }
-
     // ayuda para obtener el nombre de la location desde el id
     const nameOfLocation = (id) => locations.find((l) => String(l.id) === String(id))?.name || '';
 
@@ -398,6 +410,26 @@ export default function UsersIndex() {
                                 )}
                             </div>
 
+                            {isSuperAdmin && isAdminTarget(createForm.data.roles) && (
+                                <div>
+                                    <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">Estado admin</label>
+                                    <select
+                                        className="w-full border rounded px-3 py-2 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
+                                        value={createForm.data.status}
+                                        onChange={(e) => createForm.setData('status', e.target.value)}
+                                    >
+                                        <option value="active_demo">Demo</option>
+                                        <option value="active_working">Cliente</option>
+                                        <option value="suspended">Suspendido</option>
+                                        <option value="expired">Expirado</option>
+                                        <option value="canceled">Cancelado</option>
+                                    </select>
+                                    {createForm.errors.status && (
+                                        <p className="text-xs text-red-600">{createForm.errors.status}</p>
+                                    )}
+                                </div>
+                            )}
+
                             <div className="flex justify-end gap-2">
                                 <button
                                     type="button"
@@ -574,6 +606,26 @@ export default function UsersIndex() {
                                 )}
                             </div>
 
+                            {isSuperAdmin && isAdminTarget(editForm.data.roles) && (
+                                <div>
+                                    <label className="block text-sm mb-1">Estado admin</label>
+                                    <select
+                                        className="w-full border rounded px-3 py-2"
+                                        value={editForm.data.status}
+                                        onChange={(e) => editForm.setData('status', e.target.value)}
+                                    >
+                                        <option value="active_demo">Demo</option>
+                                        <option value="active_working">Cliente</option>
+                                        <option value="suspended">Suspendido</option>
+                                        <option value="expired">Expirado</option>
+                                        <option value="canceled">Cancelado</option>
+                                    </select>
+                                    {editForm.errors.status && (
+                                        <p className="text-xs text-red-600">{editForm.errors.status}</p>
+                                    )}
+                                </div>
+                            )}
+
                             <div className="flex justify-end gap-2">
                                 <button type="button" onClick={() => setOpenEdit(false)} className="px-3 py-2">
                                     Cancelar
@@ -593,3 +645,4 @@ export default function UsersIndex() {
         </AuthenticatedLayout>
     );
 }
+

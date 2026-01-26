@@ -13,6 +13,14 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, HasRoles;
 
+    public const STATUS_PENDING = 'pending';
+    public const STATUS_PENDING_DEMO = 'pending_demo';
+    public const STATUS_ACTIVE_DEMO = 'active_demo';
+    public const STATUS_ACTIVE_WORKING = 'active_working';
+    public const STATUS_SUSPENDED = 'suspended';
+    public const STATUS_EXPIRED = 'expired';
+    public const STATUS_CANCELED = 'canceled';
+
     /**
      * The attributes that are mass assignable.
      *
@@ -23,7 +31,10 @@ class User extends Authenticatable
         'email',
         'phone',
         'password',
-        'location_id'
+        'created_by',
+        'location_id',
+        'status',
+        'last_seen_at',
     ];
 
     /**
@@ -43,6 +54,8 @@ class User extends Authenticatable
      */
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'last_seen_at' => 'datetime',
+        'mail_notifications_enabled' => 'boolean',
     ];
 
     protected $guarded = [];
@@ -53,8 +66,42 @@ class User extends Authenticatable
         return $this->hasOne(Location::class);
     }
 
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function createdUsers()
+    {
+        return $this->hasMany(User::class, 'created_by');
+    }
+
     public function customerPoints()
     {
         return $this->hasOne(CustomerPoint::class);
+    }
+
+    public function subscriptions()
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    public function activeSubscription()
+    {
+        return $this->hasOne(Subscription::class)
+            ->where('status', 'active')
+            ->latest('ends_at');
+    }
+
+    public function isActiveForLogin(): bool
+    {
+        if ($this->hasRole('super-admin')) {
+            return true;
+        }
+
+        return in_array($this->status, [
+            self::STATUS_ACTIVE_DEMO,
+            self::STATUS_ACTIVE_WORKING,
+        ], true);
     }
 }

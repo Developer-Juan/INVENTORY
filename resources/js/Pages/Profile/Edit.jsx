@@ -1,5 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import DeleteUserForm from './Partials/DeleteUserForm';
+import NotificationPreferencesForm from './Partials/NotificationPreferencesForm';
 import UpdatePasswordForm from './Partials/UpdatePasswordForm';
 import UpdateProfileInformationForm from './Partials/UpdateProfileInformationForm';
 import { Head, usePage } from '@inertiajs/react';
@@ -10,6 +11,7 @@ export default function Edit({ auth, mustVerifyEmail, status }) {
     const isDealer = roles.includes('dealer');
     const ratingAvg = Number(dealerRating?.avg ?? 0);
     const ratingTotal = Number(dealerRating?.total ?? 0);
+    const mailNotificationsEnabled = auth?.user?.mail_notifications_enabled ?? true;
 
     return (
         <AuthenticatedLayout
@@ -55,6 +57,13 @@ export default function Edit({ auth, mustVerifyEmail, status }) {
                             </div>
                         </div>
                     )}
+
+                    <div className="p-4 sm:p-8 bg-white dark:bg-gray-800 shadow sm:rounded-lg">
+                        <NotificationPreferencesForm
+                            className="max-w-xl"
+                            enabled={mailNotificationsEnabled}
+                        />
+                    </div>
 
                     <div className="p-4 sm:p-8 bg-white dark:bg-gray-800 shadow sm:rounded-lg">
                         <UpdatePasswordForm className="max-w-xl" />

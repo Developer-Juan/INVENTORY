@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Payment;
 use App\Models\Sale;
 use App\Models\Location;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +23,31 @@ class DashboardController extends Controller
     public function index(Request $request)
     {
         $user = auth()->user();
+        if ($user && method_exists($user, 'hasRole') && $user->hasRole('super-admin')) {
+            $adminScoped = User::whereHas('roles', function ($q) {
+                $q->whereIn('name', ['admin', 'super-admin']);
+            });
+            $totalUsers = (clone $adminScoped)->count();
+            $pendingUsers = (clone $adminScoped)
+                ->whereIn('status', [User::STATUS_PENDING, User::STATUS_PENDING_DEMO])
+                ->count();
+            $activeDemo = (clone $adminScoped)->where('status', User::STATUS_ACTIVE_DEMO)->count();
+            $activeWorking = (clone $adminScoped)->where('status', User::STATUS_ACTIVE_WORKING)->count();
+            $onlineUsers = (clone $adminScoped)
+                ->where('last_seen_at', '>=', now()->subMinutes(5))
+                ->count();
+
+            return Inertia::render('SuperAdmin/Dashboard', [
+                'stats' => [
+                    'total' => $totalUsers,
+                    'pending' => $pendingUsers,
+                    'active_demo' => $activeDemo,
+                    'active_working' => $activeWorking,
+                    'online' => $onlineUsers,
+                ],
+            ]);
+        }
+
         $isDealer = $user && method_exists($user, 'hasRole') && $user->hasRole('dealer');
         $dealerLocId = $isDealer
             ? Location::where('type', 'dealer')->where('user_id', $user->id)->value('id')

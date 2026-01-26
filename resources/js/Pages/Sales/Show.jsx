@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Head, usePage, Link, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import toast from 'react-hot-toast';
+import { confirmToast } from '@/Components/ConfirmToast';
 
 export default function Show({ sale: saleProp }) {
     // Traemos props compartidos por Inertia
@@ -58,30 +59,34 @@ export default function Show({ sale: saleProp }) {
             toast.error('No hay tarifa de delivery para marcar.');
             return;
         }
-        if (!confirm('¿Marcar el pago al domi como pagado?')) return;
+        confirmToast({
+            message: '¿Marcar el pago al domi como pagado?',
+            confirmText: 'Marcar',
+            onConfirm: () => {
+                router.post(
+                    `/sales/${sale.id}/delivery/settle`,
+                    {},
+                    {
+                        preserveScroll: true,
+                        onSuccess: () => {
+                            // Optimistic UI: marcamos como pagado inmediatamente
+                            const nowIso = new Date().toISOString();
 
-        router.post(
-            `/sales/${sale.id}/delivery/settle`,
-            {},
-            {
-                preserveScroll: true,
-                onSuccess: () => {
-                    // Optimistic UI: marcamos como pagado inmediatamente
-                    const nowIso = new Date().toISOString();
+                            setLocalSale((prev) => ({
+                                ...prev,
+                                delivery_settled_at: nowIso,
+                            }));
 
-                    setLocalSale((prev) => ({
-                        ...prev,
-                        delivery_settled_at: nowIso,
-                    }));
-
-                    console.warn('Delivery marcado como pagado.');
-                },
-                onError: (err) => {
-                    console.error(err);
-                    toast.error('No se pudo marcar el pago.');
-                },
-            }
-        );
+                            console.warn('Delivery marcado como pagado.');
+                        },
+                        onError: (err) => {
+                            console.error(err);
+                            toast.error('No se pudo marcar el pago.');
+                        },
+                    }
+                );
+            },
+        });
     }
 
     return (

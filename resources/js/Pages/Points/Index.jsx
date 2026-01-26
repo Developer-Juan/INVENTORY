@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import toast from 'react-hot-toast';
+import { confirmToast } from '@/Components/ConfirmToast';
 
 export default function Index({ settings, rewards = [], pointsUsers = [], filters = {} }) {
     const { auth, errors = {} } = usePage().props;
@@ -97,10 +98,15 @@ export default function Index({ settings, rewards = [], pointsUsers = [], filter
     }
 
     function deleteReward(id) {
-        if (!confirm('¿Eliminar redención?')) return;
-        router.delete(route('points.rewards.destroy', id), {
-            preserveScroll: true,
-            onSuccess: () => toast.success('Redención eliminada'),
+        confirmToast({
+            message: '¿Eliminar redención?',
+            confirmText: 'Eliminar',
+            onConfirm: () => {
+                router.delete(route('points.rewards.destroy', id), {
+                    preserveScroll: true,
+                    onSuccess: () => toast.success('Redención eliminada'),
+                });
+            },
         });
     }
 

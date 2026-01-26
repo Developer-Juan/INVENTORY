@@ -8,6 +8,7 @@ use App\Models\SupportMessage;
 use App\Models\SupportTicket;
 use App\Models\User;
 use App\Notifications\SupportTicketCreatedNotification;
+use App\Notifications\SupportMessageReplyNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -204,11 +205,19 @@ class SupportController extends Controller
         $targetTicket->load('dealer:id,name');
         if ($isAdmin) {
             event(new SupportMessageCreated($targetTicket, $message, (int) $targetTicket->dealer_user_id));
+            $dealerUser = User::find($targetTicket->dealer_user_id);
+            if ($dealerUser) {
+                $dealerUser->notify(new SupportMessageReplyNotification($targetTicket, $message));
+            }
         } else {
             $roleNames = Role::whereIn('name', ['admin', 'super-admin'])->pluck('name');
             $adminIds = $roleNames->isEmpty() ? collect() : User::role($roleNames)->pluck('id');
             foreach ($adminIds as $adminId) {
                 event(new SupportMessageCreated($targetTicket, $message, (int) $adminId));
+            }
+            $admins = $roleNames->isEmpty() ? collect() : User::role($roleNames)->get();
+            foreach ($admins as $admin) {
+                $admin->notify(new SupportMessageReplyNotification($targetTicket, $message));
             }
         }
 

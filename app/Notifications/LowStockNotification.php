@@ -4,6 +4,7 @@ namespace App\Notifications;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
+use Illuminate\Notifications\Messages\MailMessage;
 
 class LowStockNotification extends Notification
 {
@@ -22,7 +23,11 @@ class LowStockNotification extends Notification
 
     public function via($notifiable)
     {
-        return ['database'];
+        $channels = ['database'];
+        if (config('notifications.mail_enabled') && ($notifiable->mail_notifications_enabled ?? true)) {
+            $channels[] = 'mail';
+        }
+        return $channels;
     }
 
     public function toArray($notifiable)
@@ -38,5 +43,17 @@ class LowStockNotification extends Notification
             'min_stock' => $this->minStock,
             'message' => "Stock mínimo alcanzado en {$this->locationName} para {$this->inventoryName}.",
         ];
+    }
+
+    public function toMail($notifiable)
+    {
+        return (new MailMessage)
+            ->subject('Stock mínimo alcanzado')
+            ->greeting('Hola ' . ($notifiable->name ?? ''))
+            ->line("Producto: {$this->inventoryName}")
+            ->line("Ubicación: {$this->locationName}")
+            ->line("Disponible: {$this->available} {$this->unit}")
+            ->line("Mínimo: {$this->minStock}")
+            ->action('Ver notificaciones', route('notifications.index'));
     }
 }

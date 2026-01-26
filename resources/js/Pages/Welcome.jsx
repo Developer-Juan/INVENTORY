@@ -1,23 +1,55 @@
-import { Link, Head } from '@inertiajs/react';
-import { useEffect, useMemo, useState } from 'react';
+import { Link, Head, useForm } from '@inertiajs/react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 export default function Welcome(props) {
     const [navScrolled, setNavScrolled] = useState(false);
+    const scrollContainerRef = useRef(null);
     const appName = props.appName || 'App';
     const appUrl = props.appUrl || '';
+    const landingStats = props.landingStats || {};
+    const inventoryStats = landingStats.inventory || {};
+    const salesPeriod = landingStats.salesPeriod || {};
+    const pointsStats = landingStats.points || {};
     const description =
         'Suite integral para inventario, ventas, puntos, soporte y calidad de servicio. Control en tiempo real, reportes claros y operacion sin fricciones.';
     const ogImage = `${appUrl}/og-cover.jpg`;
 
-    const sectionIds = useMemo(() => ['hero', 'alcance', 'widgets', 'demo'], []);
+    const sectionIds = useMemo(() => ['hero', 'alcance', 'widgets', 'planes', 'demo'], []);
+    const demoForm = useForm({
+        name: '',
+        email: '',
+        locations: '',
+        industry: '',
+        focus: '',
+        password: '',
+        password_confirmation: '',
+    });
+    const plans = Array.isArray(props.plans) ? props.plans : [];
+    const money = (value) =>
+        new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(
+            Number(value || 0)
+        );
+    const badgeClass = (color) => {
+        const map = {
+            indigo: 'bg-indigo-100 text-indigo-700',
+            blue: 'bg-sky-100 text-sky-700',
+            green: 'bg-emerald-100 text-emerald-700',
+            amber: 'bg-amber-100 text-amber-700',
+            red: 'bg-rose-100 text-rose-700',
+            gray: 'bg-slate-100 text-slate-700',
+        };
+        return map[color] || map.indigo;
+    };
 
     const scrollToSection = (id) => {
         const el = document.getElementById(id);
         if (!el) return;
         const headerOffset = 96;
-        const elementTop = el.getBoundingClientRect().top + window.pageYOffset;
+        const container = scrollContainerRef.current;
+        if (!container) return;
+        const elementTop = el.getBoundingClientRect().top + container.scrollTop;
         const targetTop = Math.max(0, elementTop - headerOffset);
-        window.scrollTo({ top: targetTop, behavior: 'smooth' });
+        container.scrollTo({ top: targetTop, behavior: 'smooth' });
     };
 
     const scrollToRelativeSection = (direction) => {
@@ -25,7 +57,9 @@ export default function Welcome(props) {
             .map((id) => document.getElementById(id))
             .filter(Boolean);
         if (!targets.length) return;
-        const top = window.scrollY + 8;
+        const container = scrollContainerRef.current;
+        if (!container) return;
+        const top = container.scrollTop + 8;
         const positions = targets.map((el) => ({
             id: el.id,
             top: el.offsetTop,
@@ -45,13 +79,31 @@ export default function Welcome(props) {
         }
     };
 
+    const fmtMoneyCompact = (value) => {
+        const v = Number(value ?? 0);
+        if (!Number.isFinite(v)) return '0';
+        if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}B`;
+        if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+        if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
+        return v.toFixed(0);
+    };
+
+    const fmtTime = (value) => {
+        if (!value) return '--:--';
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return '--:--';
+        return d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+    };
+
     useEffect(() => {
+        const container = scrollContainerRef.current;
+        if (!container) return undefined;
         const onScroll = () => {
-            setNavScrolled(window.scrollY > 12);
+            setNavScrolled(container.scrollTop > 12);
         };
         onScroll();
-        window.addEventListener('scroll', onScroll, { passive: true });
-        return () => window.removeEventListener('scroll', onScroll);
+        container.addEventListener('scroll', onScroll, { passive: true });
+        return () => container.removeEventListener('scroll', onScroll);
     }, []);
 
     useEffect(() => {
@@ -69,6 +121,18 @@ export default function Welcome(props) {
         );
         elements.forEach((el) => observer.observe(el));
         return () => observer.disconnect();
+    }, []);
+
+
+    useEffect(() => {
+        const prevHtmlOverflow = document.documentElement.style.overflow;
+        const prevBodyOverflow = document.body.style.overflow;
+        document.documentElement.style.overflow = 'hidden';
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.documentElement.style.overflow = prevHtmlOverflow;
+            document.body.style.overflow = prevBodyOverflow;
+        };
     }, []);
 
     return (
@@ -107,7 +171,7 @@ export default function Welcome(props) {
                     }}
                 />
             </Head>
-            <div className="relative overflow-x-hidden bg-sand-50 text-ink-900">
+            <div ref={scrollContainerRef} className="welcome-scroll relative bg-sand-50 text-ink-900">
                 <div className="pointer-events-none absolute -top-24 right-0 h-[520px] w-[520px] rounded-full bg-aurora-1 blur-[120px]" />
                 <div className="pointer-events-none absolute -bottom-40 -left-10 h-[520px] w-[520px] rounded-full bg-aurora-2 blur-[140px]" />
                 <div className="absolute inset-0 bg-grid-pattern opacity-70" />
@@ -139,6 +203,12 @@ export default function Welcome(props) {
                         <a href="#demo" className="hidden text-ink-600 hover:text-ink-900 md:inline">
                             Demo
                         </a>
+                        <Link
+                            href={route('docs')}
+                            className="hidden text-ink-600 hover:text-ink-900 md:inline"
+                        >
+                            Documentacion
+                        </Link>
                         {props.auth.user ? (
                             <Link
                                 href={route('dashboard')}
@@ -154,12 +224,13 @@ export default function Welcome(props) {
                                 >
                                     Ingresar
                                 </Link>
-                                <Link
-                                    href={route('register')}
+                                <button
+                                    type="button"
                                     className="rounded-full bg-ink-900 px-4 py-2 text-sand-50 transition hover:-translate-y-0.5 hover:shadow-lg"
+                                    onClick={() => scrollToSection('demo')}
                                 >
                                     Empezar
-                                </Link>
+                                </button>
                             </div>
                         )}
                     </nav>
@@ -196,7 +267,7 @@ export default function Welcome(props) {
                                 Control total de inventario, ventas y puntos con una experiencia que enamora.
                             </h1>
                             <p className="max-w-xl text-lg text-ink-600">
-                                DealerMania centraliza tu operacion: inventarios en tiempo real, ventas con carrito,
+                                {appName} centraliza tu operacion: inventarios en tiempo real, ventas con carrito,
                                 transferencias entre sedes, tickets de soporte, calidad de servicio y programas de puntos.
                                 Todo sincronizado, visual y listo para escalar.
                             </p>
@@ -235,33 +306,46 @@ export default function Welcome(props) {
                         <div className="relative reveal-on-nav">
                             <div className="absolute -right-6 top-6 hidden h-24 w-24 rounded-3xl bg-ink-900 opacity-10 blur-lg lg:block" />
                             <div className="relative space-y-4">
-                                <div className="widget-card widget-float-1 reveal-on-nav">
+                                <div className="widget-card widget-float-1 reveal-on-nav js-anime-card">
                                     <div className="flex items-center justify-between">
                                         <p className="text-xs uppercase tracking-[0.2em] text-ink-500">
                                             Inventario en vivo
                                         </p>
                                         <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                                            +12%
+                                            +{inventoryStats.healthy_pct ?? 0}%
                                         </span>
                                     </div>
-                                    <p className="mt-4 font-display text-3xl">1,284</p>
-                                    <p className="text-sm text-ink-500">SKU activos - alertas minimas 4</p>
+                                    <p className="mt-4 font-display text-3xl">
+                                        {Number(inventoryStats.active_skus ?? 0).toLocaleString('es-CO')}
+                                    </p>
+                                    <p className="text-sm text-ink-500">
+                                        SKU activos - alertas minimas {Number(inventoryStats.low_stock ?? 0).toLocaleString('es-CO')}
+                                    </p>
                                     <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-ink-200">
-                                        <div className="h-full w-3/4 rounded-full bg-ink-900 animate-progress" />
+                                        <div
+                                            className="h-full rounded-full bg-ink-900 transition-all duration-700"
+                                            style={{
+                                                width: `${Math.max(8, Math.min(100, inventoryStats.healthy_pct ?? 0))}%`,
+                                            }}
+                                        />
                                     </div>
                                 </div>
 
-                                <div className="widget-card widget-float-2 reveal-on-nav">
+                                <div className="widget-card widget-float-2 reveal-on-nav js-anime-card">
                                     <div className="flex items-center justify-between">
                                         <p className="text-xs uppercase tracking-[0.2em] text-ink-500">
-                                            Ventas hoy
+                                            Ventas últimos {salesPeriod.days ?? 15} días
                                         </p>
-                                        <span className="text-xs font-semibold text-ink-700">07:35 PM</span>
+                                        <span className="text-xs font-semibold text-ink-700">
+                                            {fmtTime(salesPeriod.last_at)}
+                                        </span>
                                     </div>
-                                    <p className="mt-4 font-display text-3xl">$8.9M</p>
+                                    <p className="mt-4 font-display text-3xl">
+                                        ${fmtMoneyCompact(salesPeriod.sum)}
+                                    </p>
                                     <div className="mt-3 flex items-center gap-3 text-sm text-ink-500">
                                         <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                                        18 ventas completadas
+                                        {Number(salesPeriod.count ?? 0).toLocaleString('es-CO')} ventas completadas
                                     </div>
                                     <div className="mt-4 flex gap-2">
                                         <span className="h-3 w-10 rounded-full bg-ink-200" />
@@ -271,17 +355,19 @@ export default function Welcome(props) {
                                     </div>
                                 </div>
 
-                                <div className="widget-card widget-float-3 reveal-on-nav">
+                                <div className="widget-card widget-float-3 reveal-on-nav js-anime-card">
                                     <div className="flex items-center justify-between">
                                         <p className="text-xs uppercase tracking-[0.2em] text-ink-500">
                                             Puntos y fidelizacion
                                         </p>
                                         <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
-                                            312 canjes
+                                            {Number(pointsStats.redeems ?? 0).toLocaleString('es-CO')} canjes
                                         </span>
                                     </div>
                                     <p className="mt-4 font-display text-2xl">Programa activo</p>
-                                    <p className="text-sm text-ink-500">Recompensas, regalos y campanas.</p>
+                                    <p className="text-sm text-ink-500">
+                                        {Number(pointsStats.customers ?? 0).toLocaleString('es-CO')} clientes con puntos.
+                                    </p>
                                     <div className="mt-4 grid grid-cols-3 gap-3 text-xs text-ink-600">
                                         <div className="rounded-2xl bg-ink-100 p-3">Gold</div>
                                         <div className="rounded-2xl bg-ink-100 p-3">Silver</div>
@@ -335,7 +421,7 @@ export default function Welcome(props) {
                                 ].map((item, index) => (
                                     <div
                                         key={item.title}
-                                        className="feature-card reveal-on-nav"
+                                        className="feature-card reveal-on-nav js-anime-card"
                                         style={{ transitionDelay: `${index * 0.08}s` }}
                                     >
                                         <h3 className="font-display text-lg text-ink-900">{item.title}</h3>
@@ -347,7 +433,7 @@ export default function Welcome(props) {
                     </section>
 
                     <section id="widgets" className="mx-auto w-full max-w-6xl scroll-mt-28 px-6 pb-20">
-                        <div className="rounded-[32px] bg-ink-900 px-8 py-12 text-sand-50 reveal-on-nav">
+                        <div className="rounded-[32px] bg-ink-900 px-8 py-12 text-sand-50 reveal-on-nav js-anime-card">
                             <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr]">
                                 <div className="space-y-4 reveal-on-nav">
                                     <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-200">
@@ -367,7 +453,7 @@ export default function Welcome(props) {
                                     </div>
                                 </div>
                                 <div className="space-y-4">
-                                    <div className="rounded-3xl bg-sand-50-10 p-6 reveal-on-nav">
+                                    <div className="rounded-3xl bg-sand-50-10 p-6 reveal-on-nav js-anime-card">
                                         <p className="text-xs uppercase tracking-[0.3em] text-sand-200">
                                             Radar operacional
                                         </p>
@@ -389,7 +475,7 @@ export default function Welcome(props) {
                                             ))}
                                         </div>
                                     </div>
-                                    <div className="rounded-3xl bg-sand-50-10 p-6 reveal-on-nav">
+                                    <div className="rounded-3xl bg-sand-50-10 p-6 reveal-on-nav js-anime-card">
                                         <p className="text-xs uppercase tracking-[0.3em] text-sand-200">Clientes</p>
                                         <div className="mt-4 flex items-center justify-between text-sm">
                                             <span>Recurrencia</span>
@@ -407,8 +493,71 @@ export default function Welcome(props) {
                         </div>
                     </section>
 
+                    <section id="planes" className="mx-auto w-full max-w-6xl scroll-mt-28 px-6 pb-20">
+                        <div className="space-y-6 reveal-on-nav">
+                            <div className="space-y-2">
+                                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-ink-500">
+                                    Planes y suscripciones
+                                </p>
+                                <h2 className="font-display text-3xl text-ink-900">
+                                    Elige el plan que acompaña tu crecimiento.
+                                </h2>
+                                <p className="text-ink-600">
+                                    Opciones flexibles para demo, mensual, trimestral o anual. Cambia de plan cuando lo necesites.
+                                </p>
+                            </div>
+                            <div className="grid gap-4 md:grid-cols-3">
+                                {(plans.length
+                                    ? plans
+                                    : [
+                                          { id: 'demo', name: 'Demo', duration_days: 15, price: 0, badge_color: 'indigo', is_demo: true },
+                                          { id: 'mensual', name: 'Mensual', duration_days: 30, price: 0, badge_color: 'green' },
+                                          { id: 'anual', name: 'Anual', duration_days: 365, price: 0, badge_color: 'amber' },
+                                      ]
+                                ).map((plan) => (
+                                    <div
+                                        key={plan.id || plan.name}
+                                        className="group rounded-[28px] border border-ink-200 bg-white/90 p-6 shadow-[0_16px_40px_rgba(23,20,21,0.08)] transition hover:-translate-y-1 hover:shadow-[0_26px_55px_rgba(23,20,21,0.12)]"
+                                    >
+                                        <div className="flex items-start justify-between gap-4">
+                                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${badgeClass(plan.badge_color)}`}>
+                                                {plan.name}
+                                            </span>
+                                            {plan.is_demo && (
+                                                <span className="text-xs uppercase tracking-[0.2em] text-ink-400">Demo</span>
+                                            )}
+                                        </div>
+                                        <div className="mt-5 space-y-2">
+                                            <p className="text-sm uppercase tracking-[0.25em] text-ink-400">Desde</p>
+                                            <p className="font-display text-3xl text-ink-900">
+                                                {Number(plan.price || 0) > 0 ? money(plan.price) : 'A convenir'}
+                                            </p>
+                                            <p className="text-sm text-ink-600">
+                                                {plan.duration_days} días de acceso completo
+                                            </p>
+                                        </div>
+                                        <div className="mt-5 flex items-center justify-between">
+                                            <span className="text-xs text-ink-500">
+                                                Soporte y actualizaciones incluidas
+                                            </span>
+                                            <span className="text-xs font-semibold text-ink-700">
+                                                {plan.duration_days >= 365 ? 'Premium' : 'Flexible'}
+                                            </span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="mt-5 w-full rounded-full border border-ink-300 px-4 py-2 text-sm font-semibold text-ink-700 transition group-hover:border-ink-900 group-hover:text-ink-900"
+                                        >
+                                            Ver detalles
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </section>
+
                     <section id="demo" className="mx-auto w-full max-w-6xl scroll-mt-28 px-6 pb-24">
-                        <div className="grid gap-10 rounded-[32px] border border-ink-200 bg-sand-50 px-8 py-12 lg:grid-cols-[1fr_0.9fr] reveal-on-nav">
+                        <div className="grid gap-10 rounded-[32px] border border-ink-200 bg-sand-50 px-8 py-12 lg:grid-cols-[1fr_0.9fr] reveal-on-nav js-anime-card">
                             <div className="space-y-4 reveal-on-nav">
                                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-ink-500">
                                     Solicita un demo
@@ -427,7 +576,17 @@ export default function Welcome(props) {
                                     </p>
                                 </div>
                             </div>
-                            <form className="space-y-4 reveal-on-nav">
+                            <form
+                                className="space-y-4 reveal-on-nav js-anime-card"
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    if (demoForm.processing) return;
+                                    demoForm.post(route('demo-requests.store'), {
+                                        preserveScroll: true,
+                                        onSuccess: () => demoForm.reset(),
+                                    });
+                                }}
+                            >
                                 <div>
                                     <label className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-500">
                                         Nombre completo
@@ -436,7 +595,12 @@ export default function Welcome(props) {
                                         type="text"
                                         placeholder="Nombre y apellido"
                                         className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm text-ink-800 placeholder:text-ink-400 focus:border-ink-900 focus:outline-none focus:ring-2 focus:ring-ink-900/20"
+                                        value={demoForm.data.name}
+                                        onChange={(e) => demoForm.setData('name', e.target.value)}
                                     />
+                                    {demoForm.errors.name && (
+                                        <p className="mt-1 text-xs text-red-600">{demoForm.errors.name}</p>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-500">
@@ -446,7 +610,12 @@ export default function Welcome(props) {
                                         type="email"
                                         placeholder="tu@empresa.com"
                                         className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm text-ink-800 placeholder:text-ink-400 focus:border-ink-900 focus:outline-none focus:ring-2 focus:ring-ink-900/20"
+                                        value={demoForm.data.email}
+                                        onChange={(e) => demoForm.setData('email', e.target.value)}
                                     />
+                                    {demoForm.errors.email && (
+                                        <p className="mt-1 text-xs text-red-600">{demoForm.errors.email}</p>
+                                    )}
                                 </div>
                                 <div className="grid gap-4 md:grid-cols-2">
                                     <div>
@@ -457,6 +626,8 @@ export default function Welcome(props) {
                                             type="text"
                                             placeholder="Ej: 3"
                                             className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm text-ink-800 placeholder:text-ink-400 focus:border-ink-900 focus:outline-none focus:ring-2 focus:ring-ink-900/20"
+                                            value={demoForm.data.locations}
+                                            onChange={(e) => demoForm.setData('locations', e.target.value)}
                                         />
                                     </div>
                                     <div>
@@ -467,6 +638,37 @@ export default function Welcome(props) {
                                             type="text"
                                             placeholder="Retail, gastronomia, etc."
                                             className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm text-ink-800 placeholder:text-ink-400 focus:border-ink-900 focus:outline-none focus:ring-2 focus:ring-ink-900/20"
+                                            value={demoForm.data.industry}
+                                            onChange={(e) => demoForm.setData('industry', e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <div>
+                                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-500">
+                                            Contrasena
+                                        </label>
+                                        <input
+                                            type="password"
+                                            placeholder="Crea una clave"
+                                            className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm text-ink-800 placeholder:text-ink-400 focus:border-ink-900 focus:outline-none focus:ring-2 focus:ring-ink-900/20"
+                                            value={demoForm.data.password}
+                                            onChange={(e) => demoForm.setData('password', e.target.value)}
+                                        />
+                                        {demoForm.errors.password && (
+                                            <p className="mt-1 text-xs text-red-600">{demoForm.errors.password}</p>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-500">
+                                            Confirmar
+                                        </label>
+                                        <input
+                                            type="password"
+                                            placeholder="Confirma la clave"
+                                            className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm text-ink-800 placeholder:text-ink-400 focus:border-ink-900 focus:outline-none focus:ring-2 focus:ring-ink-900/20"
+                                            value={demoForm.data.password_confirmation}
+                                            onChange={(e) => demoForm.setData('password_confirmation', e.target.value)}
                                         />
                                     </div>
                                 </div>
@@ -478,13 +680,16 @@ export default function Welcome(props) {
                                         rows="3"
                                         placeholder="Inventarios, ventas, puntos, soporte..."
                                         className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm text-ink-800 placeholder:text-ink-400 focus:border-ink-900 focus:outline-none focus:ring-2 focus:ring-ink-900/20"
+                                        value={demoForm.data.focus}
+                                        onChange={(e) => demoForm.setData('focus', e.target.value)}
                                     />
                                 </div>
                                 <button
-                                    type="button"
+                                    type="submit"
                                     className="w-full rounded-full bg-ink-900 px-6 py-3 text-sm font-semibold text-sand-50 transition hover:-translate-y-0.5 hover:shadow-xl"
+                                    disabled={demoForm.processing}
                                 >
-                                    Agendar demo
+                                    {demoForm.processing ? 'Enviando...' : 'Agendar demo'}
                                 </button>
                                 <p className="text-xs text-ink-500">
                                     Respuesta en menos de 24 horas habiles.
@@ -495,7 +700,7 @@ export default function Welcome(props) {
                 </main>
 
                 <footer className="relative z-10 border-t border-ink-200 px-6 py-8 text-center text-xs text-ink-500">
-                    {props.appName || 'App'} (©) {new Date().getFullYear()} - Operacion clara, clientes felices.
+                    {props.appName || 'App'} v{props.appVersion || '0.0.0'} (c) {new Date().getFullYear()} - Operacion clara, clientes felices.
                     <span className="ml-2 text-ink-400">
                         Laravel v{props.laravelVersion} (PHP v{props.phpVersion})
                     </span>
@@ -527,16 +732,17 @@ export default function Welcome(props) {
 
                 html {
                     scroll-behavior: smooth;
+                }
+
+                .welcome-scroll {
+                    height: 100vh;
+                    overflow-y: auto;
+                    overflow-x: hidden;
                     scrollbar-width: none;
                     -ms-overflow-style: none;
                 }
 
-                body {
-                    scrollbar-width: none;
-                    -ms-overflow-style: none;
-                }
-
-                *::-webkit-scrollbar {
+                .welcome-scroll::-webkit-scrollbar {
                     width: 0;
                     height: 0;
                 }

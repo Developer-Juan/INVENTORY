@@ -3,6 +3,7 @@ import ApplicationLogo from '@/Components/ApplicationLogo';
 import Dropdown from '@/Components/Dropdown';
 import NavLink from '@/Components/NavLink';
 import ResponsiveNavLink from '@/Components/ResponsiveNavLink';
+import { RiCustomerService2Line } from 'react-icons/ri';
 import { Link, router, usePage } from '@inertiajs/react';
 
 export default function Authenticated({ auth, header, children }) {
@@ -15,9 +16,11 @@ export default function Authenticated({ auth, header, children }) {
     const [supportSubmitting, setSupportSubmitting] = useState(false);
 
     const pageProps = usePage().props;
+    const appVersion = pageProps?.appVersion ?? '0.0.0';
     const roles = (pageProps?.auth?.user?.roles ?? []).map((r) => r.name);
     const isAdmin = roles.includes('admin');
     const isDealer = roles.includes('dealer');
+    const isSuperAdmin = roles.includes('super-admin');
     const dealerRating = pageProps?.dealerRating ?? null;
     const supportUnread = pageProps?.supportUnread ?? false;
     const [supportUnreadLive, setSupportUnreadLive] = useState(!!supportUnread);
@@ -38,7 +41,7 @@ export default function Authenticated({ auth, header, children }) {
             ? n.ticket_status !== 'closed'
             : !n.read_at
     )).length;
-    const fmtDate = (d) => (d ? new Date(d).toLocaleString('es-CO') : '—');
+    const fmtDate = (d) => (d ? new Date(d).toLocaleString('es-CO') : '-');
     const supportChatView = (() => {
         const loc = pageProps?.ziggy?.location ?? (typeof window !== 'undefined' ? window.location.href : '');
         if (!loc) return false;
@@ -168,6 +171,8 @@ export default function Authenticated({ auth, header, children }) {
         };
     }, [pageProps?.auth?.user?.id]);
 
+
+
     useEffect(() => {
         setNotificationsList(notifications);
         setNotificationsUnreadLive(Number(notificationsUnreadCount || 0));
@@ -201,6 +206,37 @@ export default function Authenticated({ auth, header, children }) {
                                     Dashboard
                                 </NavLink>
                             </div>
+
+                            {/* Aprobaciones (solo super-admin) */}
+                            {isSuperAdmin && (
+                                <div className="hidden space-x-8 sm:-my-px sm:ml-10 sm:flex">
+                                    <NavLink
+                                        href={route('super-admin.approvals')}
+                                        active={route().current('super-admin.approvals')}
+                                    >
+                                        Aprobaciones
+                                    </NavLink>
+                                    <NavLink
+                                        href={route('super-admin.users.index')}
+                                        active={route().current('super-admin.users.index')}
+                                    >
+                                        Usuarios Admin
+                                    </NavLink>
+                                    <NavLink
+                                        href={route('super-admin.broadcasts')}
+                                        active={route().current('super-admin.broadcasts')}
+                                    >
+                                        Correos masivos
+                                    </NavLink>
+                                    <NavLink
+                                        href={route('super-admin.subscriptions')}
+                                        active={route().current('super-admin.subscriptions')}
+                                    >
+                                        Suscripciones
+                                    </NavLink>
+                                </div>
+                            )}
+
 
                             {/* Productos */}
                             {isAdmin && (
@@ -276,7 +312,7 @@ export default function Authenticated({ auth, header, children }) {
                                         </Dropdown.Trigger>
                                         <Dropdown.Content align="left">
                                             <Dropdown.Link href={route('stock.summary')}>Stock Totales</Dropdown.Link>
-                                            <Dropdown.Link href={route('stock.index')}>Stock por Ubicación</Dropdown.Link>
+                                            <Dropdown.Link href={route('stock.index')}>Stock por Ubicacion</Dropdown.Link>
                                             <Dropdown.Link href={route('transfers.create')}>Transferencias</Dropdown.Link>
                                         </Dropdown.Content>
                                     </Dropdown>
@@ -307,14 +343,20 @@ export default function Authenticated({ auth, header, children }) {
                                                 </svg>
                                             </button>
                                         </Dropdown.Trigger>
-                                        <Dropdown.Content align="left">
-                                            <Dropdown.Link href={route('balances.index')}>Balances Dealers</Dropdown.Link>
-                                            <Dropdown.Link href={route('cash.index')}>Caja / Efectivo</Dropdown.Link>
-                                            <Dropdown.Link href={route('points.index')}>Puntos</Dropdown.Link>
-                                        </Dropdown.Content>
-                                    </Dropdown>
-                                </div>
-                            )}
+                                    <Dropdown.Content align="left">
+                                        <Dropdown.Link href={route('balances.index')}>Balances Dealers</Dropdown.Link>
+                                        <Dropdown.Link href={route('cash.index')}>Caja / Efectivo</Dropdown.Link>
+                                        <Dropdown.Link href={route('points.index')}>Puntos</Dropdown.Link>
+                                        <div className="px-4 pt-2 pb-1 text-xs uppercase tracking-wider text-gray-400">
+                                            Reportes
+                                        </div>
+                                        <Dropdown.Link href={route('reports.sales')}>
+                                            Reporte de ventas
+                                        </Dropdown.Link>
+                                    </Dropdown.Content>
+                                </Dropdown>
+                            </div>
+                        )}
                         </div>
 
                         {/* Perfil */}
@@ -368,10 +410,34 @@ export default function Authenticated({ auth, header, children }) {
                                 </Dropdown.Trigger>
                                 <Dropdown.Content>
                                     <Dropdown.Link href={route('profile.edit')}>Perfil</Dropdown.Link>
+                                    <Dropdown.Link href={route('docs.internal')}>Documentacion</Dropdown.Link>
                                     {isDealer && dealerRating && (
-                                        <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
-                                            Mi calificación: {Number(dealerRating.avg ?? 0).toFixed(2)} ★
-                                            {dealerRating.total ? ` · ${dealerRating.total} opiniones` : ''}
+                                        <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 space-y-1">
+                                            <div className="text-xs uppercase tracking-wider text-gray-400">
+                                                Mi calificacion
+                                            </div>
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div className="flex items-center gap-1 text-yellow-400">
+                                                    {[1, 2, 3, 4, 5].map((n) => (
+                                                        <span
+                                                            key={n}
+                                                            className={
+                                                                (dealerRating.avg ?? 0) >= n
+                                                                    ? 'text-yellow-400'
+                                                                    : 'text-gray-300 dark:text-gray-600'
+                                                            }
+                                                        >
+                                                            ★
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                                <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                                                    {Number(dealerRating.avg ?? 0).toFixed(2)}
+                                                </div>
+                                            </div>
+                                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                                                {dealerRating.total ? `${dealerRating.total} opiniones` : 'Sin opiniones'}
+                                            </div>
                                         </div>
                                     )}
                                     {isAdmin && (
@@ -393,7 +459,7 @@ export default function Authenticated({ auth, header, children }) {
                                         <Dropdown.Link href={route('support.index')}>Mis tickets</Dropdown.Link>
                                     )}
                                     <Dropdown.Link href={route('logout')} method="post" as="button">
-                                        Cerrar sesión
+                                        Cerrar sesion
                                     </Dropdown.Link>
                                 </Dropdown.Content>
                             </Dropdown>
@@ -458,6 +524,30 @@ export default function Authenticated({ auth, header, children }) {
                         <ResponsiveNavLink href={route('dashboard')} active={route().current('dashboard')}>
                             Dashboard
                         </ResponsiveNavLink>
+                            {isSuperAdmin && (
+                                <ResponsiveNavLink
+                                    href={route('super-admin.users.index')}
+                                    active={route().current('super-admin.users.index')}
+                                >
+                                    Usuarios Admin
+                                </ResponsiveNavLink>
+                            )}
+                            {isSuperAdmin && (
+                                <ResponsiveNavLink
+                                    href={route('super-admin.broadcasts')}
+                                    active={route().current('super-admin.broadcasts')}
+                                >
+                                    Correos masivos
+                                </ResponsiveNavLink>
+                            )}
+                            {isSuperAdmin && (
+                                <ResponsiveNavLink
+                                    href={route('super-admin.subscriptions')}
+                                    active={route().current('super-admin.subscriptions')}
+                                >
+                                    Suscripciones
+                                </ResponsiveNavLink>
+                            )}
 
                         {(isDealer || isAdmin) && (
                             <ResponsiveNavLink href={route('sales.index')} active={route().current('sales.index')}>
@@ -478,9 +568,11 @@ export default function Authenticated({ auth, header, children }) {
                         )}
 
                         {isAdmin && (
-                            <ResponsiveNavLink href={route('users.index')} active={route().current('users.index')}>
-                                Usuarios
-                            </ResponsiveNavLink>
+                            <>
+                                <ResponsiveNavLink href={route('users.index')} active={route().current('users.index')}>
+                                    Usuarios
+                                </ResponsiveNavLink>
+                            </>
                         )}
 
                         {/* Dropdown STOCK mobile con estilo igual */}
@@ -511,7 +603,7 @@ export default function Authenticated({ auth, header, children }) {
                                 {openStockMobile && (
                                     <div className="pl-6">
                                         <ResponsiveNavLink href={route('stock.summary')}>Stock Totales</ResponsiveNavLink>
-                                        <ResponsiveNavLink href={route('stock.index')}>Stock por Ubicación</ResponsiveNavLink>
+                                        <ResponsiveNavLink href={route('stock.index')}>Stock por Ubicacion</ResponsiveNavLink>
                                         <ResponsiveNavLink href={route('transfers.create')}>Transferencias</ResponsiveNavLink>
                                     </div>
                                 )}
@@ -554,6 +646,12 @@ export default function Authenticated({ auth, header, children }) {
                                         <ResponsiveNavLink href={route('points.index')}>
                                             Puntos
                                         </ResponsiveNavLink>
+                                        <div className="px-4 pt-2 text-xs uppercase tracking-wider text-gray-400">
+                                            Reportes
+                                        </div>
+                                        <ResponsiveNavLink href={route('reports.sales')}>
+                                            Reporte de ventas
+                                        </ResponsiveNavLink>
                                     </div>
                                 )}
                             </div>
@@ -571,10 +669,34 @@ export default function Authenticated({ auth, header, children }) {
 
                         <div className="mt-3 space-y-1">
                             <ResponsiveNavLink href={route('profile.edit')}>Perfil</ResponsiveNavLink>
+                            <ResponsiveNavLink href={route('docs.internal')}>Documentacion</ResponsiveNavLink>
                             {isDealer && dealerRating && (
-                                <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
-                                    Mi calificación: {Number(dealerRating.avg ?? 0).toFixed(2)} ★
-                                    {dealerRating.total ? ` · ${dealerRating.total} opiniones` : ''}
+                                <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 space-y-1">
+                                    <div className="text-xs uppercase tracking-wider text-gray-400">
+                                        Mi calificacion
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-1 text-yellow-400">
+                                            {[1, 2, 3, 4, 5].map((n) => (
+                                                <span
+                                                    key={n}
+                                                    className={
+                                                        (dealerRating.avg ?? 0) >= n
+                                                            ? 'text-yellow-400'
+                                                            : 'text-gray-300 dark:text-gray-600'
+                                                    }
+                                                >
+                                                    ★
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                                            {Number(dealerRating.avg ?? 0).toFixed(2)}
+                                        </div>
+                                    </div>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                                        {dealerRating.total ? `${dealerRating.total} opiniones` : 'Sin opiniones'}
+                                    </div>
                                 </div>
                             )}
                             {isAdmin && (
@@ -596,7 +718,7 @@ export default function Authenticated({ auth, header, children }) {
                                 <ResponsiveNavLink href={route('support.index')}>Mis tickets</ResponsiveNavLink>
                             )}
                             <ResponsiveNavLink method="post" href={route('logout')} as="button">
-                                Cerrar sesión
+                                Cerrar sesion
                             </ResponsiveNavLink>
                         </div>
                     </div>
@@ -611,7 +733,7 @@ export default function Authenticated({ auth, header, children }) {
 
             <main>{children}</main>
 
-            {/* Botón flotante de soporte */}
+            {/* Boton flotante de ?? */}
             {isDealer && !supportChatView && (
                 <button
                     type="button"
@@ -624,7 +746,7 @@ export default function Authenticated({ auth, header, children }) {
                     {supportUnreadLive && (
                         <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 animate-pulse" />
                     )}
-                    <span aria-hidden="true">💬</span>
+                    <RiCustomerService2Line className="text-lg" aria-hidden="true" />
                     <span className="text-sm font-medium max-w-0 overflow-hidden opacity-0 transition-all duration-200 group-hover:max-w-[6rem] group-hover:opacity-100">
                         Soporte
                     </span>
@@ -645,12 +767,12 @@ export default function Authenticated({ auth, header, children }) {
                                 className="text-gray-500 hover:text-gray-700 dark:text-gray-400"
                                 onClick={() => setOpenSupport(false)}
                             >
-                                v.0.1
+                                v{appVersion}
                             </button>
                         </div>
                         <div className="p-4 space-y-3">
                             <div className="bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-lg px-3 py-2 text-sm">
-                                Hola 👋, cuéntanos tu solicitud.
+                                Hola, cuentanos tu solicitud.
                             </div>
                             <div className="space-y-1">
                                 <label className="text-xs text-gray-500 dark:text-gray-400">Asunto</label>
@@ -662,7 +784,7 @@ export default function Authenticated({ auth, header, children }) {
                                 />
                             </div>
                             <div className="space-y-1">
-                                <label className="text-xs text-gray-500 dark:text-gray-400">Descripción</label>
+                                <label className="text-xs text-gray-500 dark:text-gray-400">Descripcion</label>
                                 <textarea
                                     className="w-full border rounded px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
                                     rows={3}
@@ -736,7 +858,7 @@ export default function Authenticated({ auth, header, children }) {
                                     setTimeout(() => setOpenNotificationsPanel(false), 350);
                                 }}
                             >
-                                ✕
+                                x
                             </button>
                             </div>
                         </div>
@@ -774,7 +896,7 @@ export default function Authenticated({ auth, header, children }) {
                                         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 shadow-sm">
                                             <div className="flex items-start justify-between gap-2">
                                                 <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                                    {n.title || (isTicket ? 'Nuevo ticket de soporte' : 'Notificación')}
+                                                    {n.title || (isTicket ? 'Nuevo ticket de soporte' : 'Notificacion')}
                                                 </div>
                                                 {isTicket && (
                                                     <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs ${statusClass}`}>
@@ -783,11 +905,11 @@ export default function Authenticated({ auth, header, children }) {
                                                 )}
                                             </div>
                                             <div className="text-sm text-gray-700 dark:text-gray-200 mt-1">
-                                                {n.message || 'Notificación'}
+                                                {n.message || 'Notificacion'}
                                             </div>
                                             {n.type === 'low_stock' && (
                                                 <div className="text-xs text-gray-600 dark:text-gray-300 mt-2">
-                                                    {n.inventory_name} · {n.location_name}
+                                                    {n.inventory_name} - {n.location_name}
                                                 </div>
                                             )}
                                             <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
@@ -836,3 +958,7 @@ export default function Authenticated({ auth, header, children }) {
         </div>
     );
 }
+
+
+
+

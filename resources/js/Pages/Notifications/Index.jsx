@@ -1,12 +1,18 @@
-﻿import React from 'react';
-import { Head, useForm } from '@inertiajs/react';
+﻿import React, { useState } from 'react';
+import { Head, useForm, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 
 const fmtDate = (d) => (d ? new Date(d).toLocaleString('es-CO') : '—');
 
-export default function NotificationsIndex({ auth, notifications, isAdmin }) {
+export default function NotificationsIndex({ auth, notifications, isAdmin, filters = {} }) {
     const items = notifications?.data ?? [];
     const form = useForm({ title: '', message: '' });
+    const [activeFilter, setActiveFilter] = useState(filters.filter ?? 'all');
+
+    const applyFilter = (value) => {
+        setActiveFilter(value);
+        router.get(route('notifications.index'), { filter: value }, { preserveScroll: true, preserveState: true });
+    };
 
     return (
         <AuthenticatedLayout
@@ -54,6 +60,26 @@ export default function NotificationsIndex({ auth, notifications, isAdmin }) {
                     </div>
                 )}
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow">
+                    <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex flex-wrap gap-2">
+                        {[
+                            { key: 'all', label: 'Todas' },
+                            { key: 'tickets', label: 'Tickets' },
+                            { key: 'admin_requests', label: 'Nuevos admins' },
+                        ].map((item) => (
+                            <button
+                                key={item.key}
+                                type="button"
+                                onClick={() => applyFilter(item.key)}
+                                className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                                    activeFilter === item.key
+                                        ? 'bg-indigo-600 text-white'
+                                        : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-200'
+                                }`}
+                            >
+                                {item.label}
+                            </button>
+                        ))}
+                    </div>
                     <div className="divide-y divide-gray-200 dark:divide-gray-700">
                         {items.length === 0 && (
                             <div className="px-4 py-6 text-sm text-gray-500 dark:text-gray-400 text-center">
@@ -120,10 +146,3 @@ export default function NotificationsIndex({ auth, notifications, isAdmin }) {
         </AuthenticatedLayout>
     );
 }
-
-
-
-
-
-
-

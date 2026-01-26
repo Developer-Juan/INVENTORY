@@ -4,7 +4,7 @@ import {
   BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function Dashboard() {
   const {
@@ -35,6 +35,42 @@ export default function Dashboard() {
   const fmtMoney = (v) =>
     Number(v ?? 0).toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  const useCountUp = (value, { duration = 3600, fromZero = true } = {}) => {
+    const initial = fromZero ? 0 : Number(value ?? 0);
+    const [display, setDisplay] = useState(initial);
+    const prevRef = useRef(initial);
+
+    useEffect(() => {
+      const from = fromZero ? 0 : (prevRef.current ?? 0);
+      const to = Number(value ?? 0);
+      if (from === to) {
+        setDisplay(to);
+        prevRef.current = to;
+        return;
+      }
+      const start = performance.now();
+      let rafId = null;
+      const tick = (now) => {
+        const t = Math.min(1, (now - start) / duration);
+        const eased = 0.5 - Math.cos(Math.PI * t) / 2;
+        const next = from + (to - from) * eased;
+        setDisplay(next);
+        if (t < 1) {
+          rafId = requestAnimationFrame(tick);
+        } else {
+          prevRef.current = to;
+          setDisplay(to);
+        }
+      };
+      rafId = requestAnimationFrame(tick);
+      return () => {
+        if (rafId) cancelAnimationFrame(rafId);
+      };
+    }, [value, duration]);
+
+    return display;
+  };
+
   const todayStr = () => new Date().toISOString().slice(0, 10);
   const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
 
@@ -54,6 +90,18 @@ export default function Dashboard() {
   };
 
   const pieColors = ["#16a34a", "#22c55e", "#65a30d", "#4ade80", "#84cc16", "#15803d", "#a3e635", "#166534"];
+
+  const KpiCard = ({ label, value }) => {
+    const animated = useCountUp(value, { fromZero: true });
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4">
+        <p className="text-sm text-gray-600 dark:text-gray-400">{label}</p>
+        <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
+          $ {fmtMoney(animated)}
+        </p>
+      </div>
+    );
+  };
 
   return (
     <AuthenticatedLayout
@@ -115,18 +163,9 @@ export default function Dashboard() {
 
         {/* KPIs */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4">
-            <p className="text-sm text-gray-600 dark:text-gray-400">Ventas en el período</p>
-            <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">$ {fmtMoney(kpi.salesSum)}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4">
-            <p className="text-sm text-gray-600 dark:text-gray-400">Pagos recibidos</p>
-            <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">$ {fmtMoney(kpi.paymentsSum)}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4">
-            <p className="text-sm text-gray-600 dark:text-gray-400">Ticket promedio</p>
-            <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">$ {fmtMoney(kpi.ticketAvg)}</p>
-          </div>
+          <KpiCard label="Ventas en el período" value={kpi.salesSum} />
+          <KpiCard label="Pagos recibidos" value={kpi.paymentsSum} />
+          <KpiCard label="Ticket promedio" value={kpi.ticketAvg} />
         </div>
 
         {/* Ventas vs Pagos */}

@@ -12,11 +12,12 @@ class UserSeeder extends Seeder
 {
     public function run(): void
     {
-        // Limpia el caché de permisos/roles de Spatie
+        // Limpia el cache de permisos/roles de Spatie
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
-        // Crea los roles que usarás
+        // Crea los roles que usaras
         $adminRole = Role::firstOrCreate(['name' => 'admin']);
+        $superAdminRole = Role::firstOrCreate(['name' => 'super-admin']);
         $deliveryRole = Role::firstOrCreate(['name' => 'delivery']);
         $cashierRole = Role::firstOrCreate(['name' => 'cashier']);
         $dealerRole = Role::firstOrCreate(['name' => 'dealer']); // opcional
@@ -35,11 +36,16 @@ class UserSeeder extends Seeder
             ['email' => 'admin@tudominio.com'],
             ['name' => 'Admin', 'password' => Hash::make('secret123')]
         );
+        $superAdmin = User::firstOrCreate(
+            ['email' => 'superadmin@tudominio.com'],
+            ['name' => 'Super Admin', 'password' => Hash::make('secret123')]
+        );
 
         // Asigna roles
         // $dani->syncRoles([$deliveryRole]); // Dani repartidor
         // $jose->syncRoles([$deliveryRole]); // Jose repartidor
         $admin->syncRoles([$adminRole]);   // Admin administrador
+        $superAdmin->syncRoles([$superAdminRole]);
 
         // // 10 usuarios aleatorios (5 delivery, 5 cashier - opcional)
         // User::factory()->count(5)->create()->each(

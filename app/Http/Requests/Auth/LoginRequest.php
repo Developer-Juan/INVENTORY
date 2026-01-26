@@ -49,6 +49,15 @@ class LoginRequest extends FormRequest
             ]);
         }
 
+        $user = Auth::user();
+        if ($user && method_exists($user, 'isActiveForLogin') && ! $user->isActiveForLogin()) {
+            Auth::logout();
+            RateLimiter::clear($this->throttleKey());
+            throw ValidationException::withMessages([
+                'email' => 'Cuenta pendiente de aprobacion. Un super admin debe activarla.',
+            ]);
+        }
+
         RateLimiter::clear($this->throttleKey());
     }
 

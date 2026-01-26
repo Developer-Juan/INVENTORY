@@ -6,6 +6,7 @@ use App\Models\SupportTicket;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 use Illuminate\Notifications\Messages\BroadcastMessage;
+use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 
 class SupportTicketCreatedNotification extends Notification implements ShouldBroadcast
@@ -18,7 +19,11 @@ class SupportTicketCreatedNotification extends Notification implements ShouldBro
 
     public function via($notifiable)
     {
-        return ['database', 'broadcast'];
+        $channels = ['database', 'broadcast'];
+        if (config('notifications.mail_enabled') && ($notifiable->mail_notifications_enabled ?? true)) {
+            $channels[] = 'mail';
+        }
+        return $channels;
     }
 
     public function toArray($notifiable)
@@ -40,5 +45,18 @@ class SupportTicketCreatedNotification extends Notification implements ShouldBro
     public function toBroadcast($notifiable)
     {
         return new BroadcastMessage($this->toArray($notifiable));
+    }
+
+    public function toMail($notifiable)
+    {
+        $dealerName = $this->ticket->dealer?->name ?? 'Dealer';
+        $subject = $this->ticket->subject ?? 'Nuevo ticket';
+
+        return (new MailMessage)
+            ->subject('Nuevo ticket de soporte')
+            ->greeting('Hola ' . ($notifiable->name ?? ''))
+            ->line("Dealer: {$dealerName}")
+            ->line("Asunto: {$subject}")
+            ->action('Ver ticket', route('support.index', ['ticket_id' => $this->ticket->id]));
     }
 }
