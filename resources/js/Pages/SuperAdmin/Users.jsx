@@ -89,26 +89,7 @@ export default function SuperAdminUsers() {
                                             <StatusBadge status={u.status} />
                                         </td>
                                         <td className="px-6 py-3 whitespace-nowrap space-x-3">
-                                            <Link
-                                                as="button"
-                                                method="put"
-                                                data={{ status: 'active_demo' }}
-                                                preserveScroll
-                                                href={route('super-admin.users.update', u.id)}
-                                                className="text-blue-600 hover:text-blue-900"
-                                            >
-                                                Demo
-                                            </Link>
-                                            <Link
-                                                as="button"
-                                                method="put"
-                                                data={{ status: 'active_working' }}
-                                                preserveScroll
-                                                href={route('super-admin.users.update', u.id)}
-                                                className="text-green-600 hover:text-green-900"
-                                            >
-                                                Cliente
-                                            </Link>
+                                           
                                             <button
                                                 type="button"
                                                 className="text-indigo-600 hover:text-indigo-900"
