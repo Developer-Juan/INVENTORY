@@ -117,6 +117,16 @@ export default function InternalDocs({ auth, errors, plans = [] }) {
                             Las ventas se registran con items, método(s) de pago y estado. El sistema calcula
                             subtotal, descuentos, impuestos y balance.
                         </p>
+                        <h4 className="mt-4 font-semibold">Flujo recomendado</h4>
+                        <ol className="mt-2 list-decimal pl-5 space-y-1">
+                            <li>Selecciona ubicación de stock (admin) o se usa la del dealer.</li>
+                            <li>Agrega productos y verifica stock disponible.</li>
+                            <li>Opcional: registra precio total por ítem.</li>
+                            <li>Asocia cliente si quieres redimir o acumular puntos.</li>
+                            <li>Si hay delivery, selecciona dealer y distancia (km).</li>
+                            <li>Define pagos (uno o varios métodos) y confirma.</li>
+                            <li>El sistema guarda la venta, ajusta stock, caja y puntos.</li>
+                        </ol>
                         <h4 className="mt-4 font-semibold">Estados</h4>
                         <ul className="mt-2 list-disc pl-5 space-y-1">
                             <li>Pagado: saldo en cero.</li>
@@ -124,8 +134,20 @@ export default function InternalDocs({ auth, errors, plans = [] }) {
                             <li>Debe: sin pagos.</li>
                             <li>Anulada: reversa stock y caja.</li>
                         </ul>
+                        <h4 className="mt-4 font-semibold">Reglas de sectorización</h4>
+                        <ul className="mt-2 list-disc pl-5 space-y-1">
+                            <li>Admin: puede vender desde ubicaciones asociadas a su cuenta.</li>
+                            <li>Dealer: solo puede vender desde su ubicación.</li>
+                            <li>Delivery sin dealer: la venta queda al usuario logueado.</li>
+                        </ul>
+                        <h4 className="mt-4 font-semibold">Puntos</h4>
+                        <ul className="mt-2 list-disc pl-5 space-y-1">
+                            <li>Redención solo si hay cliente asociado.</li>
+                            <li>Se aplica el valor por punto del admin dueño de la venta.</li>
+                            <li>Los puntos se registran por admin y por usuario.</li>
+                        </ul>
                         <p className="mt-3">
-                            Cuando se crea una venta se notifica por correo a los admins (si esta habilitado).
+                            Cuando se crea una venta se notifica por correo a los admins (si está habilitado).
                         </p>
                     </>
                 ),

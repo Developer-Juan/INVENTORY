@@ -566,6 +566,7 @@ export default function Index() {
     useEffect(() => { if (!deliveryId) setKm(''); }, [deliveryId]);
 
     function doCheckout() {
+        setSubmitting(false);
         setCartProcessing(true);
         const lines = Object.entries(cart)
             .map(([i, qtyRaw]) => {
@@ -595,7 +596,10 @@ export default function Index() {
             })
             .filter(Boolean);
 
-        if (!lines.length) return toast.error('Agrega productos con total > 0');
+        if (!lines.length) {
+            setCartProcessing(false);
+            return toast.error('Agrega productos con total > 0');
+        }
 
         setCartItems(lines);
         setPointsRedeem(0);
@@ -963,7 +967,11 @@ export default function Index() {
                 {/* BOTÓN NUEVA VENTA */}
                 <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <button
-                        onClick={() => setOpenCart(true)}
+                        onClick={() => {
+                            setSubmitting(false);
+                            setCartProcessing(false);
+                            setOpenCart(true);
+                        }}
                         className="w-full sm:w-auto bg-blue-600 text-white px-4 py-2 rounded-md text-center"
                     >
                         + Nueva Venta
@@ -1211,7 +1219,14 @@ export default function Index() {
             </div>
 
             {/* ===== Modal Carrito ===== */}
-            <Dialog open={openCart} onClose={() => setOpenCart(false)} className="relative z-50">
+            <Dialog
+                open={openCart}
+                onClose={() => {
+                    setOpenCart(false);
+                    setCartProcessing(false);
+                }}
+                className="relative z-50"
+            >
                 <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
                 <div className="fixed inset-0 flex items-center justify-center p-0 md:p-4">
                     <Dialog.Panel
@@ -1226,7 +1241,10 @@ export default function Index() {
                                 Carrito
                             </Dialog.Title>
                             <button
-                                onClick={() => setOpenCart(false)}
+                                onClick={() => {
+                                    setOpenCart(false);
+                                    setCartProcessing(false);
+                                }}
                                 className="text-gray-500 hover:text-gray-700"
                             >
                                 ✕
@@ -1705,7 +1723,10 @@ export default function Index() {
                             <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 justify-end">
                                 <button
                                     type="button"
-                                    onClick={() => setOpenPay(false)}
+                                    onClick={() => {
+                                        setOpenPay(false);
+                                        setSubmitting(false);
+                                    }}
                                     className="w-full md:w-auto px-4 py-3 md:py-2 border rounded-md"
                                     disabled={submitting}
                                 >

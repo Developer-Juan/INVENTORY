@@ -161,13 +161,18 @@ class SupportController extends Controller
 
         $message->load('sender:id,name');
         $ticket->load('dealer:id,name');
-        $roleNames = Role::whereIn('name', ['admin', 'super-admin'])->pluck('name');
-        $adminIds = $roleNames->isEmpty() ? collect() : User::role($roleNames)->pluck('id');
+        $adminIds = collect();
+        if (!empty($user->created_by)) {
+            $adminIds = User::role('admin')->where('id', $user->created_by)->pluck('id');
+        }
+
         foreach ($adminIds as $adminId) {
             event(new SupportMessageCreated($ticket, $message, (int) $adminId));
         }
 
-        $admins = $roleNames->isEmpty() ? collect() : User::role($roleNames)->get();
+        $admins = $adminIds->isEmpty()
+            ? collect()
+            : User::whereIn('id', $adminIds)->get();
         foreach ($admins as $admin) {
             $admin->notify(new SupportTicketCreatedNotification($ticket));
         }
@@ -181,9 +186,17 @@ class SupportController extends Controller
         $user = auth()->user();
         $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect();
         $isAdmin = $roles->contains('admin') || $roles->contains('super-admin');
+        $isSuperAdmin = $roles->contains('super-admin');
 
         if (!$isAdmin && (int) $ticket->dealer_user_id !== (int) $user->id) {
             abort(403);
+        }
+        if ($roles->contains('admin') && !$isSuperAdmin) {
+            $dealerIds = User::where('created_by', $user->id)->pluck('id');
+            $userIds = $dealerIds->push($user->id)->unique()->values();
+            if (!in_array((int) $ticket->dealer_user_id, $userIds->all(), true)) {
+                abort(403);
+            }
         }
 
         $data = $request->validate([
@@ -226,12 +239,16 @@ class SupportController extends Controller
                 $dealerUser->notify(new SupportMessageReplyNotification($targetTicket, $message));
             }
         } else {
-            $roleNames = Role::whereIn('name', ['admin', 'super-admin'])->pluck('name');
-            $adminIds = $roleNames->isEmpty() ? collect() : User::role($roleNames)->pluck('id');
+            $adminIds = collect();
+            if (!empty($user->created_by)) {
+                $adminIds = User::role('admin')->where('id', $user->created_by)->pluck('id');
+            }
             foreach ($adminIds as $adminId) {
                 event(new SupportMessageCreated($targetTicket, $message, (int) $adminId));
             }
-            $admins = $roleNames->isEmpty() ? collect() : User::role($roleNames)->get();
+            $admins = $adminIds->isEmpty()
+                ? collect()
+                : User::whereIn('id', $adminIds)->get();
             foreach ($admins as $admin) {
                 $admin->notify(new SupportMessageReplyNotification($targetTicket, $message));
             }
@@ -245,9 +262,17 @@ class SupportController extends Controller
         $user = auth()->user();
         $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect();
         $isAdmin = $roles->contains('admin') || $roles->contains('super-admin');
+        $isSuperAdmin = $roles->contains('super-admin');
 
         if (!$isAdmin) {
             abort(403);
+        }
+        if ($roles->contains('admin') && !$isSuperAdmin) {
+            $dealerIds = User::where('created_by', $user->id)->pluck('id');
+            $userIds = $dealerIds->push($user->id)->unique()->values();
+            if (!in_array((int) $ticket->dealer_user_id, $userIds->all(), true)) {
+                abort(403);
+            }
         }
 
         DB::transaction(function () use ($ticket, $user) {

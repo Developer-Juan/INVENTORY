@@ -32,9 +32,6 @@ export default function Show({ sale: saleProp }) {
         });
 
     const customerPhone = sale.customer_user?.phone ?? null;
-    const customerPoints = Number(
-        sale.customer_user?.customer_points?.points_balance ?? 0
-    );
 
     const statusBadge =
         sale.status === 'pagado'
@@ -116,14 +113,6 @@ export default function Show({ sale: saleProp }) {
                         <p>
                             <span className="text-gray-600">Regalo para:</span>{' '}
                             {sale.customer_user?.name ?? '—'}
-                        </p>
-                    )}
-                    {sale.customer_user && (
-                        <p>
-                            <span className="text-gray-600">
-                                Puntos cliente:
-                            </span>{' '}
-                            {customerPoints.toLocaleString('es-CO')} pts
                         </p>
                     )}
 
