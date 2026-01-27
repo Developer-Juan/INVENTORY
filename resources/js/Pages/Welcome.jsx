@@ -373,7 +373,7 @@ export default function Welcome(props) {
                                 <div className="widget-card widget-float-2 reveal-on-nav js-anime-card">
                                     <div className="flex items-center justify-between">
                                         <p className="text-xs uppercase tracking-[0.2em] text-ink-500">
-                                            Ventas Ãºltimos {salesPeriod.days ?? 15} dÃ­as
+                                            Ventas Ultimos {salesPeriod.days ?? 15} días
                                         </p>
                                         <span className="text-xs font-semibold text-ink-700">
                                             {fmtTime(salesPeriod.last_at)}
@@ -539,7 +539,7 @@ export default function Welcome(props) {
                                     Planes y suscripciones
                                 </p>
                                 <h2 className="font-display text-3xl text-ink-900">
-                                    Elige el plan que acompaÃ±a tu crecimiento.
+                                    Elige el plan que acompaña tu crecimiento.
                                 </h2>
                                 <p className="text-ink-600">
                                     Opciones flexibles para demo, mensual, trimestral o anual. Cambia de plan cuando lo necesites.
@@ -572,7 +572,7 @@ export default function Welcome(props) {
                                                 {Number(plan.price || 0) > 0 ? money(plan.price) : 'A convenir'}
                                             </p>
                                             <p className="text-sm text-ink-600">
-                                                {plan.duration_days} dÃ­as de acceso completo
+                                                {plan.duration_days} días de acceso completo
                                             </p>
                                         </div>
                                         <div className="mt-5 flex items-center justify-between">
