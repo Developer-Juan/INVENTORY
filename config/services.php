@@ -31,4 +31,15 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'telegram' => [
+        'bot_token' => env('TELEGRAM_BOT_TOKEN'),
+        'webhook_secret' => env('TELEGRAM_WEBHOOK_SECRET'),
+        'default_chat_id' => env('TELEGRAM_DEFAULT_CHAT_ID'),
+
+        // opcional (tu UI / links)
+        'support_url' => env('TELEGRAM_SUPPORT_URL'),
+        'embed_url' => env('TELEGRAM_EMBED_URL'),
+    ],
+
+
 ];

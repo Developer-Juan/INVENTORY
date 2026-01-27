@@ -1,8 +1,9 @@
 ﻿import React, { useMemo, useState } from 'react';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 
 export default function InternalDocs({ auth, errors, plans = [] }) {
+    const { telegramSupportUrl = '' } = usePage().props;
     const sections = useMemo(
         () => [
             {
@@ -182,6 +183,29 @@ export default function InternalDocs({ auth, errors, plans = [] }) {
                         <p className="mt-3">
                             Las respuestas generan correo para el otro lado (admin o dealer), si el usuario lo tiene habilitado.
                         </p>
+                    </>
+                ),
+            },
+            {
+                id: 'chatbot',
+                title: 'Chatbot Telegram',
+                body: (
+                    <>
+                        <p>
+                            El chatbot de Telegram permite abrir tickets y consultar estado sin entrar al panel.
+                        </p>
+                        {telegramSupportUrl ? (
+                            <Link
+                                href={telegramSupportUrl}
+                                className="mt-3 inline-flex items-center justify-center rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                            >
+                                Abrir chatbot
+                            </Link>
+                        ) : (
+                            <p className="mt-3 text-sm text-gray-500">
+                                Configura el enlace de Telegram en TELEGRAM_SUPPORT_URL.
+                            </p>
+                        )}
                     </>
                 ),
             },

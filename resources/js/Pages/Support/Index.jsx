@@ -10,6 +10,8 @@ export default function SupportIndex() {
     const [subject, setSubject] = useState('');
     const [message, setMessage] = useState('');
     const [reply, setReply] = useState('');
+    const [sendingTicket, setSendingTicket] = useState(false);
+    const [sendingReply, setSendingReply] = useState(false);
     const messagesEndRef = useRef(null);
     const activeTicketIdRef = useRef(null);
 
@@ -23,12 +25,15 @@ export default function SupportIndex() {
 
     const submitTicket = (e) => {
         e.preventDefault();
+        if (sendingTicket) return;
+        setSendingTicket(true);
         router.post(route('support.store'), { subject, message }, {
             preserveScroll: true,
             onSuccess: () => {
                 setSubject('');
                 setMessage('');
             },
+            onFinish: () => setSendingTicket(false),
         });
     };
 
@@ -36,9 +41,12 @@ export default function SupportIndex() {
         e.preventDefault();
         if (!activeTicket?.id) return;
         if (activeTicket.status === 'closed') return;
+        if (sendingReply) return;
+        setSendingReply(true);
         router.post(route('support.messages.store', activeTicket.id), { message: reply }, {
             preserveScroll: true,
             onSuccess: () => setReply(''),
+            onFinish: () => setSendingReply(false),
         });
     };
 
@@ -153,9 +161,27 @@ export default function SupportIndex() {
                             <div className="flex justify-end">
                                 <button
                                     type="submit"
-                                    className="px-4 py-2 rounded-md bg-blue-600 text-white"
+                                    disabled={sendingTicket}
+                                    className={`px-4 py-2 rounded-md text-white inline-flex items-center gap-2 ${
+                                        sendingTicket ? 'bg-blue-400' : 'bg-blue-600'
+                                    }`}
                                 >
-                                    Crear ticket
+                                    {sendingTicket && (
+                                        <svg
+                                            className="h-4 w-4 animate-spin"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            aria-hidden="true"
+                                        >
+                                            <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                                            <path d="M22 12a10 10 0 0 1-10 10" />
+                                        </svg>
+                                    )}
+                                    {sendingTicket ? 'Enviando...' : 'Crear ticket'}
                                 </button>
                             </div>
                         </form>
@@ -252,12 +278,29 @@ export default function SupportIndex() {
                                         />
                                         <button
                                             type="submit"
-                                            disabled={activeTicket.status === 'closed'}
-                                            className={`px-4 py-2 rounded-md text-white ${
-                                                activeTicket.status === 'closed' ? 'bg-gray-400' : 'bg-green-600'
+                                            disabled={activeTicket.status === 'closed' || sendingReply}
+                                            className={`px-4 py-2 rounded-md text-white inline-flex items-center gap-2 ${
+                                                activeTicket.status === 'closed' || sendingReply
+                                                    ? 'bg-gray-400'
+                                                    : 'bg-green-600'
                                             }`}
                                         >
-                                            Enviar
+                                            {sendingReply && (
+                                                <svg
+                                                    className="h-4 w-4 animate-spin"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth="2"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    aria-hidden="true"
+                                                >
+                                                    <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                                                    <path d="M22 12a10 10 0 0 1-10 10" />
+                                                </svg>
+                                            )}
+                                            {sendingReply ? 'Enviando...' : 'Enviar'}
                                         </button>
                                     </form>
                                 </>

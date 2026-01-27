@@ -131,6 +131,8 @@ class HandleInertiaRequests extends Middleware
                 'success' => fn() => $request->session()->get('success'),
                 'error' => fn() => $request->session()->get('error'),
             ],
+            'telegramSupportUrl' => config('services.telegram.support_url'),
+            'telegramEmbedUrl' => config('services.telegram.embed_url'),
             'ziggy' => fn() => array_merge((new \Tightenco\Ziggy\Ziggy)->toArray(), [
                 'location' => $request->url(),
             ]),

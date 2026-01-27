@@ -29,6 +29,14 @@ class SupportController extends Controller
         $ticketsQuery = SupportTicket::query()
             ->with('dealer:id,name')
             ->when(!$isAdmin, fn($q) => $q->where('dealer_user_id', $user->id))
+            ->when($roles->contains('admin') && !$roles->contains('super-admin'), function ($q) use ($user) {
+                $q->whereIn('dealer_user_id', function ($sub) use ($user) {
+                    $sub->select('id')
+                        ->from('users')
+                        ->where('id', $user->id)
+                        ->orWhere('created_by', $user->id);
+                });
+            })
             ->orderByDesc('last_message_at')
             ->orderByDesc('id');
 
@@ -65,6 +73,14 @@ class SupportController extends Controller
             $selected = SupportTicket::query()
                 ->with(['dealer:id,name', 'messages.sender:id,name'])
                 ->when(!$isAdmin, fn($q) => $q->where('dealer_user_id', $user->id))
+                ->when($roles->contains('admin') && !$roles->contains('super-admin'), function ($q) use ($user) {
+                    $q->whereIn('dealer_user_id', function ($sub) use ($user) {
+                        $sub->select('id')
+                            ->from('users')
+                            ->where('id', $user->id)
+                            ->orWhere('created_by', $user->id);
+                    });
+                })
                 ->where('id', (int) $ticketId)
                 ->first();
         }

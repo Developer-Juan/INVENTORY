@@ -3,7 +3,7 @@ import ApplicationLogo from '@/Components/ApplicationLogo';
 import Dropdown from '@/Components/Dropdown';
 import NavLink from '@/Components/NavLink';
 import ResponsiveNavLink from '@/Components/ResponsiveNavLink';
-import { RiCustomerService2Line } from 'react-icons/ri';
+import { RiCustomerService2Line, RiTelegramLine } from 'react-icons/ri';
 import { Link, router, usePage } from '@inertiajs/react';
 
 export default function Authenticated({ auth, header, children }) {
@@ -14,6 +14,7 @@ export default function Authenticated({ auth, header, children }) {
     const [supportSubject, setSupportSubject] = useState('');
     const [supportMessage, setSupportMessage] = useState('');
     const [supportSubmitting, setSupportSubmitting] = useState(false);
+    const [openSupportMenu, setOpenSupportMenu] = useState(false);
 
     const pageProps = usePage().props;
     const appVersion = pageProps?.appVersion ?? '0.0.0';
@@ -21,6 +22,9 @@ export default function Authenticated({ auth, header, children }) {
     const isAdmin = roles.includes('admin');
     const isDealer = roles.includes('dealer');
     const isSuperAdmin = roles.includes('super-admin');
+    const telegramSupportUrl = pageProps?.telegramSupportUrl ?? '';
+    const telegramEmbedUrl = pageProps?.telegramEmbedUrl ?? '';
+    const canShowTelegramSupport = !isSuperAdmin;
     const dealerRating = pageProps?.dealerRating ?? null;
     const supportUnread = pageProps?.supportUnread ?? false;
     const [supportUnreadLive, setSupportUnreadLive] = useState(!!supportUnread);
@@ -41,6 +45,17 @@ export default function Authenticated({ auth, header, children }) {
             ? n.ticket_status !== 'closed'
             : !n.read_at
     )).length;
+    const openTelegramChat = () => {
+        if (!telegramSupportUrl) return;
+        const match = telegramSupportUrl.match(/t\.me\/([^/?#]+)/i);
+        const username = match ? match[1] : null;
+        const deepLink = username ? `tg://resolve?domain=${username}` : telegramSupportUrl;
+        if (typeof window === 'undefined') return;
+        window.location.href = deepLink;
+        setTimeout(() => {
+            window.open(telegramSupportUrl, '_blank', 'noopener,noreferrer');
+        }, 600);
+    };
     const fmtDate = (d) => (d ? new Date(d).toLocaleString('es-CO') : '-');
     const supportChatView = (() => {
         const loc = pageProps?.ziggy?.location ?? (typeof window !== 'undefined' ? window.location.href : '');
@@ -52,6 +67,7 @@ export default function Authenticated({ auth, header, children }) {
             return false;
         }
     })();
+    const showHelpMenu = !isSuperAdmin && !supportChatView;
 
     const submitSupport = (e) => {
         if (e) e.preventDefault();
@@ -557,6 +573,15 @@ export default function Authenticated({ auth, header, children }) {
                                 </ResponsiveNavLink>
                             )}
 
+                        {isAdmin && (
+                            <ResponsiveNavLink
+                                href={route('inventories.index')}
+                                active={route().current('inventories.index')}
+                            >
+                                Productos
+                            </ResponsiveNavLink>
+                        )}
+
                         {(isDealer || isAdmin) && (
                             <ResponsiveNavLink href={route('sales.index')} active={route().current('sales.index')}>
                                 Ventas
@@ -741,24 +766,56 @@ export default function Authenticated({ auth, header, children }) {
 
             <main>{children}</main>
 
-            {/* Boton flotante de ?? */}
-            {isDealer && !supportChatView && (
-                <button
-                    type="button"
-                    onClick={() => {
-                        setOpenSupport(true);
-                        setSupportUnreadLive(false);
-                    }}
-                    className="fixed bottom-6 right-6 z-50 inline-flex items-center gap-2 rounded-full bg-blue-600 text-white px-4 py-3 shadow-lg hover:bg-blue-700 group"
-                >
-                    {supportUnreadLive && (
-                        <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 animate-pulse" />
+            {/* Boton flotante (menu) */}
+            {showHelpMenu && (canShowTelegramSupport || isDealer) && (
+                <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
+                    {openSupportMenu && (
+                        <div className="flex flex-col items-end gap-2">
+                            {canShowTelegramSupport && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        openTelegramChat();
+                                        setOpenSupportMenu(false);
+                                    }}
+                                    className="inline-flex items-center gap-2 rounded-full bg-sky-500 text-white px-4 py-3 shadow-lg hover:bg-sky-600"
+                                >
+                                    <RiTelegramLine className="text-lg" aria-hidden="true" />
+                                    <span className="text-sm font-medium">Telegram</span>
+                                </button>
+                            )}
+                            {isDealer && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setOpenSupport(true);
+                                        setSupportUnreadLive(false);
+                                        setOpenSupportMenu(false);
+                                    }}
+                                    className="relative inline-flex items-center gap-2 rounded-full bg-blue-600 text-white px-4 py-3 shadow-lg hover:bg-blue-700"
+                                >
+                                    {supportUnreadLive && (
+                                        <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 animate-pulse" />
+                                    )}
+                                    <RiCustomerService2Line className="text-lg" aria-hidden="true" />
+                                    <span className="text-sm font-medium">Soporte</span>
+                                </button>
+                            )}
+                        </div>
                     )}
-                    <RiCustomerService2Line className="text-lg" aria-hidden="true" />
-                    <span className="text-sm font-medium max-w-0 overflow-hidden opacity-0 transition-all duration-200 group-hover:max-w-[6rem] group-hover:opacity-100">
-                        Soporte
-                    </span>
-                </button>
+                    <button
+                        type="button"
+                        onClick={() => setOpenSupportMenu((p) => !p)}
+                        className={`inline-flex items-center gap-2 rounded-full px-5 py-3 shadow-xl transition ${
+                            openSupportMenu
+                                ? 'bg-gray-800 text-white ring-4 ring-black/10'
+                                : 'bg-gradient-to-r from-gray-900 via-slate-900 to-gray-800 text-white hover:brightness-110'
+                        }`}
+                    >
+                        <RiCustomerService2Line className="text-lg" aria-hidden="true" />
+                        <span className="text-sm font-semibold">{openSupportMenu ? 'Cerrar ayuda' : 'Ayuda'}</span>
+                    </button>
+                </div>
             )}
 
             {openSupport && isDealer && (

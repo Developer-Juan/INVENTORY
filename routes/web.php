@@ -20,6 +20,7 @@ use App\Http\Controllers\SuperAdminController;
 use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\SuperAdminBroadcastController;
 use App\Http\Controllers\SuperAdminSubscriptionController;
+use App\Http\Controllers\TelegramWebhookController;
 use App\Models\SubscriptionPlan;
 use App\Models\CustomerPoint;
 use App\Models\InventoryStock;
@@ -102,6 +103,10 @@ Route::get('/', function () {
         'plans' => $plans,
     ]);
 });
+
+
+Route::post('/telegram/webhook/{secret}', [TelegramWebhookController::class, 'handle']);
+
 
 Route::get('/docs', function () {
     return Inertia::render('Docs', [

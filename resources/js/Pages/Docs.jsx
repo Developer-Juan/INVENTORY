@@ -6,6 +6,7 @@ export default function Docs(props) {
     const scrollContainerRef = useRef(null);
     const appName = props.appName || 'App';
     const appUrl = props.appUrl || '';
+    const telegramSupportUrl = props.telegramSupportUrl || '';
     const description =
         'Documentacion operativa y roadmap del sitio. Accesos rapidos a consultas publicas, paneles internos y flujos clave.';
     const plans = Array.isArray(props.plans) ? props.plans : [];
@@ -313,13 +314,23 @@ export default function Docs(props) {
                                         requieren autenticacion.
                                     </p>
                                 </div>
-                                    <div className="space-y-3 reveal-on-nav js-anime-card">
+                                <div className="space-y-3 reveal-on-nav js-anime-card">
                                     <Link
                                         href={route('points.public')}
                                         className="block rounded-3xl bg-sand-50-10 px-4 py-3 text-sm hover:bg-sand-50-20 transition"
                                     >
                                         Consulta publica de puntos
                                     </Link>
+                                    {telegramSupportUrl && (
+                                        <a
+                                            href={telegramSupportUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="block rounded-3xl bg-sand-50-10 px-4 py-3 text-sm hover:bg-sand-50-20 transition"
+                                        >
+                                            Chatbot Telegram (soporte)
+                                        </a>
+                                    )}
                                     <Link
                                         href={route('login')}
                                         className="block rounded-3xl bg-sand-50-10 px-4 py-3 text-sm hover:bg-sand-50-20 transition"

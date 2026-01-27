@@ -1,4 +1,4 @@
-import { Link, Head, useForm } from '@inertiajs/react';
+﻿import { Link, Head, useForm } from '@inertiajs/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 export default function Welcome(props) {
@@ -7,6 +7,10 @@ export default function Welcome(props) {
     const appName = props.appName || 'App';
     const appUrl = props.appUrl || '';
     const landingStats = props.landingStats || {};
+    const telegramSupportUrl = props.telegramSupportUrl || '';
+    const roles = (props.auth?.user?.roles ?? []).map((r) => (typeof r === 'string' ? r : r.name));
+    const isSuperAdmin = roles.includes('super-admin');
+    const showTelegramSupport = !isSuperAdmin;
     const inventoryStats = landingStats.inventory || {};
     const salesPeriod = landingStats.salesPeriod || {};
     const pointsStats = landingStats.points || {};
@@ -77,6 +81,17 @@ export default function Welcome(props) {
         if (targetId) {
             scrollToSection(targetId);
         }
+    };
+
+    const openTelegramChat = () => {
+        if (!telegramSupportUrl || typeof window === 'undefined') return;
+        const match = telegramSupportUrl.match(/t\.me\/([^/?#]+)/i);
+        const username = match ? match[1] : null;
+        const deepLink = username ? `tg://resolve?domain=${username}` : telegramSupportUrl;
+        window.location.href = deepLink;
+        setTimeout(() => {
+            window.open(telegramSupportUrl, '_blank', 'noopener,noreferrer');
+        }, 600);
     };
 
     const fmtMoneyCompact = (value) => {
@@ -171,7 +186,7 @@ export default function Welcome(props) {
                     }}
                 />
             </Head>
-            <div ref={scrollContainerRef} className="welcome-scroll relative bg-sand-50 text-ink-900">
+        <div ref={scrollContainerRef} className="welcome-scroll relative bg-sand-50 text-ink-900">
                 <div className="pointer-events-none absolute -top-24 right-0 h-[520px] w-[520px] rounded-full bg-aurora-1 blur-[120px]" />
                 <div className="pointer-events-none absolute -bottom-40 -left-10 h-[520px] w-[520px] rounded-full bg-aurora-2 blur-[140px]" />
                 <div className="absolute inset-0 bg-grid-pattern opacity-70" />
@@ -244,7 +259,19 @@ export default function Welcome(props) {
                             aria-label="Ir arriba"
                             onClick={() => scrollToRelativeSection('up')}
                         >
-                            ↑
+                            <svg
+                                className="h-5 w-5"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                            >
+                                <path d="M12 19V5" />
+                                <path d="M5 12l7-7 7 7" />
+                            </svg>
                         </button>
                         <button
                             type="button"
@@ -252,7 +279,19 @@ export default function Welcome(props) {
                             aria-label="Ir abajo"
                             onClick={() => scrollToRelativeSection('down')}
                         >
-                            ↓
+                            <svg
+                                className="h-5 w-5"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                            >
+                                <path d="M12 5v14" />
+                                <path d="M5 12l7 7 7-7" />
+                            </svg>
                         </button>
                     </div>
                     <section
@@ -334,7 +373,7 @@ export default function Welcome(props) {
                                 <div className="widget-card widget-float-2 reveal-on-nav js-anime-card">
                                     <div className="flex items-center justify-between">
                                         <p className="text-xs uppercase tracking-[0.2em] text-ink-500">
-                                            Ventas últimos {salesPeriod.days ?? 15} días
+                                            Ventas Ãºltimos {salesPeriod.days ?? 15} dÃ­as
                                         </p>
                                         <span className="text-xs font-semibold text-ink-700">
                                             {fmtTime(salesPeriod.last_at)}
@@ -500,7 +539,7 @@ export default function Welcome(props) {
                                     Planes y suscripciones
                                 </p>
                                 <h2 className="font-display text-3xl text-ink-900">
-                                    Elige el plan que acompaña tu crecimiento.
+                                    Elige el plan que acompaÃ±a tu crecimiento.
                                 </h2>
                                 <p className="text-ink-600">
                                     Opciones flexibles para demo, mensual, trimestral o anual. Cambia de plan cuando lo necesites.
@@ -533,7 +572,7 @@ export default function Welcome(props) {
                                                 {Number(plan.price || 0) > 0 ? money(plan.price) : 'A convenir'}
                                             </p>
                                             <p className="text-sm text-ink-600">
-                                                {plan.duration_days} días de acceso completo
+                                                {plan.duration_days} dÃ­as de acceso completo
                                             </p>
                                         </div>
                                         <div className="mt-5 flex items-center justify-between">
@@ -555,6 +594,65 @@ export default function Welcome(props) {
                             </div>
                         </div>
                     </section>
+
+                    {showTelegramSupport && (
+                        <section id="telegram" className="mx-auto w-full max-w-6xl px-6 pb-24">
+                            <div className="grid gap-10 rounded-[32px] border border-ink-200 bg-sand-50 px-8 py-12 lg:grid-cols-[1fr_0.9fr] reveal-on-nav js-anime-card">
+                                <div className="space-y-4 reveal-on-nav">
+                                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-ink-500">
+                                        Soporte en Telegram
+                                    </p>
+                                    <h2 className="font-display text-3xl text-ink-900">
+                                        Resuelve dudas con nuestro chatbot en minutos.
+                                    </h2>
+                                    <p className="text-ink-600">
+                                        Abre un chat directo con el equipo de soporte, recibe respuestas guiadas y consulta
+                                        el estado de tus solicitudes sin salir de tu celular.
+                                    </p>
+                                    <div className="rounded-3xl bg-ink-900 p-6 text-sand-50">
+                                        <p className="font-display text-xl">Soporte 24/7</p>
+                                        <p className="mt-2 text-sm text-sand-100">
+                                            Nuestro bot de Telegram te acompaña con respuestas inmediatas y deja todo listo
+                                            para que el equipo humano tome el caso.
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="space-y-4">
+                                    <div className="inline-flex items-center gap-2 rounded-full border border-ink-200 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-ink-600">
+                                        <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                                        Chatbot en linea
+                                    </div>
+                                    <p className="text-sm text-ink-600">
+                                        El soporte se atiende por Telegram. Abre el chat y responde el bot para iniciar.
+                                    </p>
+                                    {telegramSupportUrl && (
+                                        <div className="rounded-3xl border border-ink-200 bg-white p-6 text-center shadow-[0_20px_50px_rgba(23,20,21,0.08)]">
+                                            <div className="mx-auto grid h-20 w-20 place-items-center rounded-full border border-ink-200 bg-sand-50 text-ink-900 shadow-inner">
+                                                <svg
+                                                    className="h-10 w-10"
+                                                    viewBox="0 0 24 24"
+                                                    fill="currentColor"
+                                                    aria-hidden="true"
+                                                >
+                                                    <path d="M21.5 2.5L2.7 9.7c-1.2.5-1.2 1.2-.2 1.6l4.8 1.5 1.8 5.6c.2.5.1.8.7.8.4 0 .6-.2.9-.5l2.3-2.2 4.7 3.4c.8.5 1.4.2 1.6-.8l3.2-15c.3-1.2-.4-1.7-1.2-1.4zM9.7 13.8l9.6-8.6-7.4 9.8-.3 3.7-1.7-5.5-3.6-1.2z" />
+                                                </svg>
+                                            </div>
+                                            <p className="mt-4 text-xs font-semibold uppercase tracking-[0.25em] text-ink-500">
+                                                Respuesta inmediata
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={openTelegramChat}
+                                                className="mt-4 inline-flex items-center justify-center rounded-full bg-ink-900 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-sand-50 transition hover:-translate-y-0.5 hover:shadow-xl"
+                                            >
+                                                Chatear ahora
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </section>
+                    )}
 
                     <section id="demo" className="mx-auto w-full max-w-6xl scroll-mt-28 px-6 pb-24">
                         <div className="grid gap-10 rounded-[32px] border border-ink-200 bg-sand-50 px-8 py-12 lg:grid-cols-[1fr_0.9fr] reveal-on-nav js-anime-card">
@@ -706,6 +804,7 @@ export default function Welcome(props) {
                     </span>
                 </footer>
             </div>
+
 
             <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Clash+Display:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap');
@@ -873,6 +972,7 @@ export default function Welcome(props) {
                     }
                 }
 
+
                 .text-sand-50 {
                     color: #fef9f5;
                 }
@@ -985,3 +1085,4 @@ export default function Welcome(props) {
         </>
     );
 }
+
