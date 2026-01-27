@@ -126,8 +126,15 @@ Route::post('/demo-requests', [DemoRequestController::class, 'store'])
     ->name('demo-requests.store');
 
 // Consulta pública de puntos (sin login)
-Route::get('/points/consulta', [PointsController::class, 'publicLookupPage'])
-    ->name('points.public');
+Route::get('/points/consulta', function () {
+    return Inertia::render('Points/PublicLookup', [
+        'appName' => config('app.name'),
+        'appUrl' => config('app.url'),
+        'appVersion' => config('app.version'),
+        'laravelVersion' => Application::VERSION,
+        'phpVersion' => PHP_VERSION,
+    ]);
+})->name('points.public');
 Route::get('/points/consulta/lookup', [PointsController::class, 'publicLookup'])
     ->name('points.public.lookup');
 
@@ -258,34 +265,34 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/cash/transfer', [CashController::class, 'transfer'])->name('cash.transfer');
         Route::post('/cash/pickup', [CashController::class, 'pickup'])->name('cash.pickup');
 
-    //Balances
-    Route::get('/balances', [BalanceController::class, 'index'])
-        ->name('balances.index');
+        //Balances
+        Route::get('/balances', [BalanceController::class, 'index'])
+            ->name('balances.index');
 
-    Route::post('/balances/{dealerLocationId}/settle', [BalanceController::class, 'settleDealer'])
-        ->name('balances.settle');
+        Route::post('/balances/{dealerLocationId}/settle', [BalanceController::class, 'settleDealer'])
+            ->name('balances.settle');
 
-    // Reportes de ventas
-    Route::get('/reports/sales', [ReportsController::class, 'salesPage'])
-        ->name('reports.sales');
-    Route::get('/reports/sales/excel', [ReportsController::class, 'salesExcel'])
-        ->name('reports.sales.excel');
-    Route::get('/reports/sales/pdf', [ReportsController::class, 'salesPdf'])
-        ->name('reports.sales.pdf');
+        // Reportes de ventas
+        Route::get('/reports/sales', [ReportsController::class, 'salesPage'])
+            ->name('reports.sales');
+        Route::get('/reports/sales/excel', [ReportsController::class, 'salesExcel'])
+            ->name('reports.sales.excel');
+        Route::get('/reports/sales/pdf', [ReportsController::class, 'salesPdf'])
+            ->name('reports.sales.pdf');
 
-    // Puntos (config y redenciones)
-    Route::get('/points', [PointsController::class, 'index'])->name('points.index');
+        // Puntos (config y redenciones)
+        Route::get('/points', [PointsController::class, 'index'])->name('points.index');
         Route::post('/points/settings', [PointsController::class, 'updateSettings'])
             ->name('points.settings.update');
         Route::post('/points/rewards', [PointsController::class, 'storeReward'])
             ->name('points.rewards.store');
         Route::put('/points/rewards/{reward}', [PointsController::class, 'updateReward'])
             ->name('points.rewards.update');
-    Route::delete('/points/rewards/{reward}', [PointsController::class, 'destroyReward'])
-        ->name('points.rewards.destroy');
+        Route::delete('/points/rewards/{reward}', [PointsController::class, 'destroyReward'])
+            ->name('points.rewards.destroy');
 
-    // Regalos
-    Route::get('/gifts', [GiftController::class, 'index'])->name('gifts.index');
+        // Regalos
+        Route::get('/gifts', [GiftController::class, 'index'])->name('gifts.index');
         Route::get('/gifts/lookup', [GiftController::class, 'lookupCustomer'])
             ->name('gifts.customer.lookup');
         Route::post('/gifts', [GiftController::class, 'store'])->name('gifts.store');

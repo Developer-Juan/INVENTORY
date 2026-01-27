@@ -89,6 +89,9 @@ export default function PublicLookup(props) {
                 points: data.user?.points_balance ?? 0,
                 breakdown: Array.isArray(data?.breakdown) ? data.breakdown : [],
             });
+
+            // opcional: llevar al resultado luego de consultar
+            // scrollToSection('resultado');
         } catch (e2) {
             console.error(e2);
             setError('No se pudo consultar en este momento.');
@@ -96,6 +99,15 @@ export default function PublicLookup(props) {
             setLoading(false);
         }
     }
+
+    // ✅ iOS fix: al enfocar inputs dentro de un contenedor scrolleable, a veces pega saltos.
+    // Forzamos a mantener la sección visible (sin pelear con el browser).
+    const onPhoneFocus = () => {
+        requestAnimationFrame(() => {
+            // Asegura que el bloque "consulta" quede visible bajo el header sticky
+            scrollToSection('consulta');
+        });
+    };
 
     // Welcome: lock scroll global
     useEffect(() => {
@@ -117,7 +129,7 @@ export default function PublicLookup(props) {
         onScroll();
         container.addEventListener('scroll', onScroll, { passive: true });
         return () => container.removeEventListener('scroll', onScroll);
-    }, []);
+    }, [scrollContainerRef]);
 
     // Welcome: reveal on scroll
     useEffect(() => {
@@ -176,8 +188,8 @@ export default function PublicLookup(props) {
                 {/* Header (Welcome) */}
                 <header
                     className={`sticky top-0 z-30 mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 transition-all duration-300 ${navScrolled
-                        ? 'navbar-scrolled shadow-[0_18px_50px_rgba(23,20,21,0.12)]'
-                        : 'navbar-top'
+                            ? 'navbar-scrolled shadow-[0_18px_50px_rgba(23,20,21,0.12)]'
+                            : 'navbar-top'
                         }`}
                 >
                     <div className="flex items-center gap-3">
@@ -231,14 +243,40 @@ export default function PublicLookup(props) {
 
                 {/* Arrow nav (Welcome) */}
                 <div className="arrow-nav">
-                    <button type="button" className="arrow-btn" aria-label="Ir arriba" onClick={() => scrollToRelativeSection('up')}>
-                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <button
+                        type="button"
+                        className="arrow-btn"
+                        aria-label="Ir arriba"
+                        onClick={() => scrollToRelativeSection('up')}
+                    >
+                        <svg
+                            className="h-5 w-5"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        >
                             <path d="M12 19V5" />
                             <path d="M5 12l7-7 7 7" />
                         </svg>
                     </button>
-                    <button type="button" className="arrow-btn" aria-label="Ir abajo" onClick={() => scrollToRelativeSection('down')}>
-                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <button
+                        type="button"
+                        className="arrow-btn"
+                        aria-label="Ir abajo"
+                        onClick={() => scrollToRelativeSection('down')}
+                    >
+                        <svg
+                            className="h-5 w-5"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        >
                             <path d="M12 5v14" />
                             <path d="M5 12l7 7 7-7" />
                         </svg>
@@ -247,7 +285,10 @@ export default function PublicLookup(props) {
 
                 <main className="relative z-10">
                     {/* HERO */}
-                    <section id="hero" className="mx-auto grid w-full max-w-6xl items-center gap-12 px-6 pb-20 pt-10 lg:grid-cols-[1.1fr_0.9fr] lg:pt-16">
+                    <section
+                        id="hero"
+                        className="mx-auto grid w-full max-w-6xl items-center gap-12 px-6 pb-20 pt-10 lg:grid-cols-[1.1fr_0.9fr] lg:pt-16"
+                    >
                         <div className="space-y-6 reveal-on-nav">
                             <div className="inline-flex items-center gap-2 rounded-full border border-ink-200 bg-sand-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-ink-500 shadow-sm">
                                 Consulta pública · 24/7
@@ -294,21 +335,21 @@ export default function PublicLookup(props) {
                             </div>
                         </div>
 
-                        {/* Widgets (idéntico vibe Welcome) */}
+                        {/* Widgets */}
                         <div className="relative reveal-on-nav">
                             <div className="absolute -right-6 top-6 hidden h-24 w-24 rounded-3xl bg-ink-900 opacity-10 blur-lg lg:block" />
                             <div className="relative space-y-4">
                                 <div className="widget-card widget-float-1 reveal-on-nav js-anime-card">
                                     <div className="flex items-center justify-between">
                                         <p className="text-xs uppercase tracking-[0.2em] text-ink-500">Puntos</p>
-                                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${pill.cls}`}>{pill.text}</span>
+                                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${pill.cls}`}>
+                                            {pill.text}
+                                        </span>
                                     </div>
                                     <p className="mt-4 font-display text-3xl">
                                         {result?.found ? Number(result.points || 0).toLocaleString('es-CO') : '—'}
                                     </p>
-                                    <p className="text-sm text-ink-500">
-                                        {result?.found ? 'Balance disponible' : 'Consulta para ver tu saldo'}
-                                    </p>
+                                    <p className="text-sm text-ink-500">{result?.found ? 'Balance disponible' : 'Consulta para ver tu saldo'}</p>
                                     <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-ink-200">
                                         <div
                                             className="h-full rounded-full bg-ink-900 transition-all duration-700 animate-progress"
@@ -369,9 +410,7 @@ export default function PublicLookup(props) {
                             <div className="space-y-4 reveal-on-nav">
                                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-ink-500">Consulta</p>
                                 <h2 className="font-display text-3xl text-ink-900">Ingresa tu número y listo.</h2>
-                                <p className="text-ink-600">
-                                    El sistema valida y devuelve el saldo. Si no existe, te lo dice directo.
-                                </p>
+                                <p className="text-ink-600">El sistema valida y devuelve el saldo. Si no existe, te lo dice directo.</p>
 
                                 <div className="rounded-3xl bg-ink-900 p-6 text-sand-50">
                                     <p className="font-display text-xl">Tip</p>
@@ -401,13 +440,23 @@ export default function PublicLookup(props) {
                                                 background: 'rgba(255,255,255,0.9)',
                                                 color: 'rgba(23,20,21,1)',
                                                 boxShadow: 'none',
+
+                                                // ✅ CLAVE: evita zoom en iOS (inputs < 16px hacen zoom)
+                                                fontSize: '16px',
+                                                lineHeight: '20px',
                                             }}
                                             buttonStyle={{
                                                 borderRadius: '18px 0 0 18px',
                                                 border: '1px solid rgba(229,222,216,1)',
                                                 background: 'rgba(255,255,255,0.9)',
                                             }}
-                                            inputProps={{ id: 'phone', name: 'phone' }}
+                                            inputProps={{
+                                                id: 'phone',
+                                                name: 'phone',
+
+                                                // ✅ ayuda a evitar saltos raros en contenedores con scroll (iOS)
+                                                onFocus: onPhoneFocus,
+                                            }}
                                         />
                                     </div>
 
@@ -432,16 +481,12 @@ export default function PublicLookup(props) {
                         <div className="rounded-[32px] border border-ink-200 bg-white/85 p-8 shadow-[0_20px_60px_rgba(23,20,21,0.10)] backdrop-blur reveal-on-nav js-anime-card">
                             <div className="flex flex-wrap items-center justify-between gap-4">
                                 <div>
-                                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-ink-500">
-                                        Resultado
-                                    </p>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-ink-500">Resultado</p>
                                     <h3 className="mt-1 font-display text-2xl text-ink-900">
                                         {result?.found ? 'Saldo de puntos' : 'Aún sin consulta'}
                                     </h3>
                                 </div>
-                                <span className={`rounded-full px-3 py-2 text-xs font-semibold ${pill.cls}`}>
-                                    {pill.text}
-                                </span>
+                                <span className={`rounded-full px-3 py-2 text-xs font-semibold ${pill.cls}`}>{pill.text}</span>
                             </div>
 
                             {!result && (
@@ -469,10 +514,7 @@ export default function PublicLookup(props) {
                                         </p>
 
                                         <div className="mt-5 h-2 w-full overflow-hidden rounded-full bg-ink-200">
-                                            <div
-                                                className="h-full rounded-full bg-ink-900 transition-all duration-700"
-                                                style={{ width: progressWidth }}
-                                            />
+                                            <div className="h-full rounded-full bg-ink-900 transition-all duration-700" style={{ width: progressWidth }} />
                                         </div>
 
                                         <p className="mt-4 text-sm text-ink-500">
@@ -493,9 +535,7 @@ export default function PublicLookup(props) {
                                                 {result.breakdown.map((row, idx) => (
                                                     <div key={`${row.admin_id ?? 'na'}-${idx}`} className="flex items-center justify-between px-4 py-3 text-sm">
                                                         <span className="text-ink-700">{row.admin_name || 'Sin admin'}</span>
-                                                        <span className="font-semibold">
-                                                            {Number(row.points_balance || 0).toLocaleString('es-CO')}
-                                                        </span>
+                                                        <span className="font-semibold">{Number(row.points_balance || 0).toLocaleString('es-CO')}</span>
                                                     </div>
                                                 ))}
                                             </div>
@@ -516,7 +556,7 @@ export default function PublicLookup(props) {
                 </footer>
             </div>
 
-            {/* ESTILOS: MISMO BLOQUE DE WELCOME (completo) */}
+            {/* ESTILOS */}
             <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Clash+Display:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap');
 
@@ -542,6 +582,7 @@ export default function PublicLookup(props) {
                     overflow-x: hidden;
                     scrollbar-width: none;
                     -ms-overflow-style: none;
+                    -webkit-overflow-scrolling: touch;
                 }
                 .welcome-scroll::-webkit-scrollbar { width: 0; height: 0; }
 
@@ -679,7 +720,7 @@ export default function PublicLookup(props) {
                     100% { width: 30%; opacity: 0.6; }
                 }
 
-                /* PhoneInput: que se vea como los inputs del Welcome */
+                /* PhoneInput: focus estilo Welcome */
                 .react-tel-input .form-control:focus {
                     border-color: rgba(23, 20, 21, 1) !important;
                     box-shadow: 0 0 0 3px rgba(23, 20, 21, 0.12) !important;
@@ -687,6 +728,14 @@ export default function PublicLookup(props) {
                 .react-tel-input .selected-flag:hover,
                 .react-tel-input .selected-flag:focus {
                     background: rgba(248, 245, 240, 0.98) !important;
+                }
+
+                /* ✅ FIX DEFINITIVO iOS: evita zoom (inputs < 16px) */
+                @media (max-width: 768px) {
+                    .react-tel-input .form-control {
+                        font-size: 16px !important;
+                        line-height: 20px !important;
+                    }
                 }
             `}</style>
         </>
