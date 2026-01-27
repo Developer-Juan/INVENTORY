@@ -20,6 +20,7 @@ class TransferController extends Controller
         $user = auth()->user();
         $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect();
         $isAdmin = $roles->contains('admin') || $roles->contains('super-admin');
+        $isSuperAdmin = $roles->contains('super-admin');
         $isDealer = $roles->contains('dealer');
 
         $principalId = Location::whereIn('type', ['principal', 'main'])->value('id');
@@ -28,6 +29,14 @@ class TransferController extends Controller
         $locations = Location::query()
             ->whereIn('type', ['principal', 'main', 'dealer', 'secondary', 'dealer_secondary'])
             ->with('user:id,name')
+            ->when($isAdmin && !$isSuperAdmin, function ($q) use ($user) {
+                $dealerIds = \App\Models\User::where('created_by', $user->id)->pluck('id');
+                $userIds = $dealerIds->push($user->id)->unique()->values();
+                $q->where(function ($inner) use ($userIds) {
+                    $inner->whereIn('user_id', $userIds)
+                        ->orWhereIn('type', ['principal', 'main']);
+                });
+            })
             ->get(['id', 'name', 'user_id', 'type']);
 
         // -------- filtros del front --------
@@ -43,6 +52,11 @@ class TransferController extends Controller
         $dealerLocations = Location::query()
             ->whereIn('type', ['dealer', 'secondary', 'dealer_secondary'])
             ->with('user:id,name')
+            ->when($isAdmin && !$isSuperAdmin, function ($q) use ($user) {
+                $dealerIds = \App\Models\User::where('created_by', $user->id)->pluck('id');
+                $userIds = $dealerIds->push($user->id)->unique()->values();
+                $q->whereIn('user_id', $userIds);
+            })
             ->get(['id', 'name', 'user_id', 'type']);
 
         $dealerLocationId = null;
@@ -53,6 +67,11 @@ class TransferController extends Controller
                 ->value('id');
             $dealerId = $dealerLocationId;
             $dealerLocations = $dealerLocations->where('id', $dealerLocationId)->values();
+        }
+        if ($isAdmin && !$isSuperAdmin && !empty($dealerId)) {
+            if (!$dealerLocations->pluck('id')->contains((int) $dealerId)) {
+                abort(403);
+            }
         }
 
         // -------- query base historial --------
@@ -81,6 +100,9 @@ class TransferController extends Controller
             $historyQuery->where('to_location_id', $dealerId);
         } elseif ($isDealer) {
             $historyQuery->whereRaw('1 = 0');
+        }
+        if ($isAdmin && !$isSuperAdmin) {
+            $historyQuery->whereIn('to_location_id', $dealerLocations->pluck('id'));
         }
 
         // filtrar por rango de FECHA PURA (sin hora)
@@ -157,6 +179,16 @@ class TransferController extends Controller
         $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect();
         $isAdmin = $roles->contains('admin') || $roles->contains('super-admin');
         $isDealer = $roles->contains('dealer');
+        $isSuperAdmin = $roles->contains('super-admin');
+        $allowedLocationIds = collect();
+        if ($isAdmin && !$isSuperAdmin) {
+            $dealerIds = \App\Models\User::where('created_by', $user->id)->pluck('id');
+            $userIds = $dealerIds->push($user->id)->unique()->values();
+            $allowedLocationIds = Location::query()
+                ->whereIn('user_id', $userIds)
+                ->orWhereIn('type', ['principal', 'main'])
+                ->pluck('id');
+        }
 
         if ($isDealer && !$isAdmin) {
             abort(403);
@@ -177,11 +209,19 @@ class TransferController extends Controller
             ]);
             $fromId = (int) $data['from_location_id'];
             $toId = (int) $data['to_location_id'];
+            if ($allowedLocationIds->isNotEmpty()) {
+                if (!$allowedLocationIds->contains($fromId) || !$allowedLocationIds->contains($toId)) {
+                    abort(403);
+                }
+            }
         } else {
             // Flujo principal -> dealer
             $data = $r->validate($baseRules + [
                 'dealer_location_id' => ['required', 'exists:locations,id'],
             ]);
+            if ($allowedLocationIds->isNotEmpty() && !$allowedLocationIds->contains((int) $data['dealer_location_id'])) {
+                abort(403);
+            }
 
             $fromId = (int) Location::whereIn('type', ['principal', 'main'])->value('id');
             if (!$fromId) {

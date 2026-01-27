@@ -18,6 +18,12 @@ class CashController extends Controller
         $user = auth()->user();
         $roles = $user ? $user->getRoleNames() : collect();
         $isAdmin = $roles->contains('admin') || $roles->contains('super-admin');
+        $isSuperAdmin = $roles->contains('super-admin');
+        $allowedUserIds = collect();
+        if ($roles->contains('admin') && !$isSuperAdmin) {
+            $dealerIds = \App\Models\User::role('dealer')->where('created_by', $user->id)->pluck('id');
+            $allowedUserIds = $dealerIds->push($user->id)->unique()->values();
+        }
 
         // === Ubicaciones con saldo de caja ===
         $locQuery = Location::query()
@@ -27,6 +33,7 @@ class CashController extends Controller
                 'locations.name',
                 DB::raw('COALESCE(lc.on_hand, 0) as cash_on_hand'),
             ])
+            ->when($roles->contains('admin') && !$isSuperAdmin, fn($q) => $q->whereIn('locations.user_id', $allowedUserIds))
             ->orderBy('locations.name');
 
         // (Opcional) Si no es admin, podrías limitar a sus ubicaciones.
@@ -42,10 +49,9 @@ class CashController extends Controller
             ->latest('id')
             ->select('id', 'location_id', 'direction', 'amount', 'reason', 'note', 'created_by', 'created_at');
 
-        // (Opcional) limitar movimientos a las ubicaciones visibles para no-admin
-        // if (!$isAdmin) {
-        //     $movesQuery->whereIn('location_id', $locations->pluck('id'));
-        // }
+        if ($roles->contains('admin') && !$isSuperAdmin) {
+            $movesQuery->whereIn('location_id', $locations->pluck('id'));
+        }
 
         $moves = $movesQuery->paginate(20)->withQueryString();
 
@@ -66,6 +72,13 @@ class CashController extends Controller
         if (!($roles->contains('admin') || $roles->contains('super-admin'))) {
             abort(403);
         }
+        $isSuperAdmin = $roles->contains('super-admin');
+        $allowedLocationIds = collect();
+        if ($roles->contains('admin') && !$isSuperAdmin) {
+            $dealerIds = \App\Models\User::role('dealer')->where('created_by', $actor->id)->pluck('id');
+            $allowedUserIds = $dealerIds->push($actor->id)->unique()->values();
+            $allowedLocationIds = Location::whereIn('user_id', $allowedUserIds)->pluck('id');
+        }
 
         $data = $request->validate([
             'from_location_id' => ['required', 'exists:locations,id', 'different:to_location_id'],
@@ -75,6 +88,14 @@ class CashController extends Controller
         ], [
             'from_location_id.different' => 'Las ubicaciones no pueden ser iguales.',
         ]);
+        if ($allowedLocationIds->isNotEmpty()) {
+            if (
+                !$allowedLocationIds->contains((int) $data['from_location_id']) ||
+                !$allowedLocationIds->contains((int) $data['to_location_id'])
+            ) {
+                abort(403);
+            }
+        }
 
         DB::transaction(function () use ($data, $actor) {
             $amount = round((float) $data['amount'], 2);
@@ -167,6 +188,13 @@ class CashController extends Controller
         if (!($roles->contains('admin') || $roles->contains('super-admin'))) {
             abort(403);
         }
+        $isSuperAdmin = $roles->contains('super-admin');
+        $allowedLocationIds = collect();
+        if ($roles->contains('admin') && !$isSuperAdmin) {
+            $dealerIds = \App\Models\User::role('dealer')->where('created_by', $actor->id)->pluck('id');
+            $allowedUserIds = $dealerIds->push($actor->id)->unique()->values();
+            $allowedLocationIds = Location::whereIn('user_id', $allowedUserIds)->pluck('id');
+        }
 
         $data = $request->validate([
             'location_id' => ['required', 'exists:locations,id'],
@@ -174,9 +202,12 @@ class CashController extends Controller
             'note' => ['nullable', 'string', 'max:191'],
         ]);
 
-        DB::transaction(function () use ($data, $actor) {
+        DB::transaction(function () use ($data, $actor, $allowedLocationIds) {
             $amount = round((float) $data['amount'], 2);
             $locId = (int) $data['location_id'];
+            if ($allowedLocationIds->isNotEmpty() && !$allowedLocationIds->contains($locId)) {
+                abort(403);
+            }
 
             $cash = LocationCash::where('location_id', $locId)
                 ->lockForUpdate()

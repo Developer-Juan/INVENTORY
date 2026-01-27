@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\InventoryStock;
 use App\Models\Location;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -17,15 +18,35 @@ class StockController extends Controller
      */
     public function index(Request $r)
     {
+        $user = $r->user();
+        $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin');
+        $isSuperAdmin = $roles->contains('super-admin');
+        $restrictedLocations = null;
+        if (!$isSuperAdmin) {
+            if ($isAdmin) {
+                $dealerIds = User::where('created_by', $user->id)->pluck('id');
+                $userIds = $dealerIds->push($user->id)->unique()->values();
+                $restrictedLocations = Location::whereIn('user_id', $userIds)->pluck('id');
+            } else {
+                $restrictedLocations = Location::where('user_id', $user->id)->pluck('id');
+            }
+        }
+
         // Normaliza inputs
         $locationId = $r->filled('location_id') ? (int) $r->query('location_id') : null;
         $q = trim((string) $r->query('q', ''));
         $belowMin = (bool) $r->query('below_min', false);
         $perPage = max(1, min((int) $r->query('per_page', 30), 200));
 
+        if ($restrictedLocations !== null && $locationId && !$restrictedLocations->contains($locationId)) {
+            abort(403);
+        }
+
         $page = InventoryStock::query()
             ->with(['inventory:id,name,unit', 'location:id,name,type'])
             ->when($locationId, fn($qq) => $qq->where('location_id', $locationId))
+            ->when($restrictedLocations !== null, fn($qq) => $qq->whereIn('location_id', $restrictedLocations))
             ->whereHas('inventory', function ($qq) use ($q) {
                 if ($q !== '') {
                     $qq->where('name', 'like', "%{$q}%");
@@ -56,6 +77,7 @@ class StockController extends Controller
             ],
             // Para el <select> de ubicaciones en el frontend
             'locations' => Location::select('id', 'name', 'type')
+                ->when($restrictedLocations !== null, fn($q) => $q->whereIn('id', $restrictedLocations))
                 ->orderBy('type')
                 ->orderBy('name')
                 ->get(),
@@ -65,12 +87,28 @@ class StockController extends Controller
     // RESUMEN por SKU (sumando todas las ubicaciones)
     public function summary(Request $r)
     {
+        $user = $r->user();
+        $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin');
+        $isSuperAdmin = $roles->contains('super-admin');
+        $restrictedLocations = null;
+        if (!$isSuperAdmin) {
+            if ($isAdmin) {
+                $dealerIds = User::where('created_by', $user->id)->pluck('id');
+                $userIds = $dealerIds->push($user->id)->unique()->values();
+                $restrictedLocations = Location::whereIn('user_id', $userIds)->pluck('id');
+            } else {
+                $restrictedLocations = Location::where('user_id', $user->id)->pluck('id');
+            }
+        }
+
         $q = (string) $r->query('q', '');
         $belowMin = $r->boolean('below_min');
         $perPage = (int) $r->query('per_page', 30);
 
         $builder = DB::table('inventory_stocks as s')
             ->join('inventories as i', 'i.id', '=', 's.inventory_id')
+            ->when($restrictedLocations !== null, fn($qq) => $qq->whereIn('s.location_id', $restrictedLocations))
             ->select([
                 's.inventory_id',
                 'i.name',

@@ -10,6 +10,7 @@ class PointsSetting extends Model
     use HasFactory;
 
     protected $fillable = [
+        'admin_id',
         'value_per_point',
         'redemption_info',
     ];

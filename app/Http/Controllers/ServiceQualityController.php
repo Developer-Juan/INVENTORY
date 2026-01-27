@@ -20,6 +20,11 @@ class ServiceQualityController extends Controller
         $user = auth()->user();
         $roles = $user ? $user->getRoleNames() : collect();
         $isAdmin = $roles->contains('admin') || $roles->contains('super-admin');
+        $isSuperAdmin = $roles->contains('super-admin');
+        $dealerIds = collect();
+        if ($isAdmin && !$isSuperAdmin) {
+            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+        }
 
         $dealerFilter = $request->query('dealer_id');
 
@@ -30,6 +35,11 @@ class ServiceQualityController extends Controller
             ->when(!$isAdmin, function ($q) use ($user) {
                 $q->whereHas('sale', function ($sq) use ($user) {
                     $sq->where('delivery_id', $user->id);
+                });
+            })
+            ->when($isAdmin && !$isSuperAdmin, function ($q) use ($dealerIds) {
+                $q->whereHas('sale', function ($sq) use ($dealerIds) {
+                    $sq->whereIn('delivery_id', $dealerIds);
                 });
             })
             ->with([
@@ -51,6 +61,9 @@ class ServiceQualityController extends Controller
             ->when(!$isAdmin, function ($q) use ($user) {
                 $q->where('dealer_user_id', $user->id);
             })
+            ->when($isAdmin && !$isSuperAdmin, function ($q) use ($dealerIds) {
+                $q->whereIn('dealer_user_id', $dealerIds);
+            })
             ->when($dealerFilter, function ($q) use ($dealerFilter) {
                 $q->where('dealer_user_id', (int) $dealerFilter);
             });
@@ -62,10 +75,15 @@ class ServiceQualityController extends Controller
         $rankingByProduct = [];
 
         if ($isAdmin) {
-            $dealers = User::role('dealer')->select('id', 'name')->orderBy('name')->get();
+            $dealers = User::role('dealer')
+                ->when(!$isSuperAdmin, fn($q) => $q->where('created_by', $user->id))
+                ->select('id', 'name')
+                ->orderBy('name')
+                ->get();
 
             $rankingByDealer = ServiceQualityReview::query()
                 ->select('dealer_user_id', DB::raw('AVG(rating_dealer) as avg_rating'), DB::raw('COUNT(*) as total'))
+                ->when($isAdmin && !$isSuperAdmin, fn($q) => $q->whereIn('dealer_user_id', $dealerIds))
                 ->when($dealerFilter, fn($q) => $q->where('dealer_user_id', (int) $dealerFilter))
                 ->groupBy('dealer_user_id')
                 ->orderByDesc('avg_rating')
@@ -87,6 +105,7 @@ class ServiceQualityController extends Controller
                     DB::raw('AVG(service_quality_product_ratings.rating) as avg_rating'),
                     DB::raw('COUNT(*) as total')
                 )
+                ->when($isAdmin && !$isSuperAdmin, fn($q) => $q->whereIn('r.dealer_user_id', $dealerIds))
                 ->when($dealerFilter, fn($q) => $q->where('r.dealer_user_id', (int) $dealerFilter))
                 ->groupBy('si.inventory_id', 'i.name')
                 ->orderByDesc('avg_rating')

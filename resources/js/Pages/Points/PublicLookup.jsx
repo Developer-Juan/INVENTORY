@@ -41,6 +41,7 @@ export default function PublicLookup() {
                 name: data.user?.name ?? '',
                 phone: data.user?.phone ?? normalized,
                 points: data.user?.points_balance ?? 0,
+                breakdown: Array.isArray(data?.breakdown) ? data.breakdown : [],
             });
         } catch (e) {
             console.error(e);
@@ -94,12 +95,29 @@ export default function PublicLookup() {
                 <div className="mt-4 border rounded-lg p-4 bg-gray-50">
                     <div className="text-sm text-gray-500">Usuario</div>
                     <div className="font-semibold">{result.name || '—'}</div>
-                    <div className="text-sm text-gray-500 mt-2">Celular</div>
-                    <div>{result.phone}</div>
                     <div className="text-sm text-gray-500 mt-2">Puntos</div>
                     <div className="text-2xl font-bold">
                         {Number(result.points).toLocaleString('es-CO')}
                     </div>
+                    {result.breakdown?.length > 0 && (
+                        <div className="mt-4">
+                            <div className="text-sm text-gray-500 mb-2">
+                                Desglose por vendedor
+                            </div>
+                            <div className="divide-y border rounded-md bg-white">
+                                {result.breakdown.map((row, idx) => (
+                                    <div key={`${row.admin_id ?? 'na'}-${idx}`} className="flex items-center justify-between px-3 py-2 text-sm">
+                                        <span className="text-gray-700">
+                                            {row.admin_name || 'Sin admin'}
+                                        </span>
+                                        <span className="font-semibold">
+                                            {Number(row.points_balance || 0).toLocaleString('es-CO')}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
         </GuestLayout>

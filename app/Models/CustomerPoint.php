@@ -11,6 +11,7 @@ class CustomerPoint extends Model
 
     protected $fillable = [
         'user_id',
+        'admin_id',
         'points_balance',
     ];
 

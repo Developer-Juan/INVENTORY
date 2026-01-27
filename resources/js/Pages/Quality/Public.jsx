@@ -65,8 +65,9 @@ export default function QualityPublic({
 
         setLoading(true);
         try {
-            const res = await fetch(route('quality.public.submit', token), {
+            const res = await fetch(route('quality.public.submit', token, false), {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest',

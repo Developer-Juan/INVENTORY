@@ -14,6 +14,15 @@ class BalanceController extends Controller
 {
     public function index(Request $request)
     {
+        $user = auth()->user();
+        $roles = $user ? $user->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin');
+        $isSuperAdmin = $roles->contains('super-admin');
+        $dealerUserIds = collect();
+        if ($isAdmin && !$isSuperAdmin) {
+            $dealerUserIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+        }
+
         $dealerId = $request->query('dealer_id');   // location_id del dealer
         $fromDate = $request->query('from_date');
         $toDate = $request->query('to_date');
@@ -21,8 +30,16 @@ class BalanceController extends Controller
         // Traemos todos los puntos tipo dealer
         $dealerLocations = Location::query()
             ->whereIn('type', ['dealer', 'secondary', 'dealer_secondary'])
+            ->when($isAdmin && !$isSuperAdmin, fn($q) => $q->whereIn('user_id', $dealerUserIds))
             ->with('user:id,name')
             ->get(['id', 'name', 'user_id', 'type']);
+        $dealerLocationIds = $dealerLocations->pluck('id');
+
+        if (!empty($dealerId) && $isAdmin && !$isSuperAdmin) {
+            if (!$dealerLocationIds->contains((int) $dealerId)) {
+                abort(403);
+            }
+        }
 
         // ============================================================
         // MODO GLOBAL (sin dealer_id): resumen por dealer
@@ -345,6 +362,21 @@ class BalanceController extends Controller
      */
     public function settleDealer(Request $request, int $dealerLocationId)
     {
+        $user = auth()->user();
+        $roles = $user ? $user->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin');
+        $isSuperAdmin = $roles->contains('super-admin');
+        if ($isAdmin && !$isSuperAdmin) {
+            $dealerUserIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+            $allowedLocation = Location::whereIn('type', ['dealer', 'secondary', 'dealer_secondary'])
+                ->where('id', $dealerLocationId)
+                ->whereIn('user_id', $dealerUserIds)
+                ->exists();
+            if (!$allowedLocation) {
+                abort(403);
+            }
+        }
+
         // 1. Buscar la location
         $location = Location::whereIn('type', ['dealer', 'secondary', 'dealer_secondary'])
             ->where('id', $dealerLocationId)

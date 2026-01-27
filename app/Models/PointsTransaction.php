@@ -12,6 +12,7 @@ class PointsTransaction extends Model
     protected $fillable = [
         'user_id',
         'sale_id',
+        'admin_id',
         'type',
         'points',
         'note',

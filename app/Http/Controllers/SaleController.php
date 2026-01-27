@@ -34,9 +34,35 @@ class SaleController extends Controller
     {
     }
 
+    private function resolvePointsAdminId(User $actor, ?int $deliveryId = null): ?int
+    {
+        if ($deliveryId) {
+            $dealer = User::find($deliveryId);
+            if ($dealer && !empty($dealer->created_by)) {
+                return (int) $dealer->created_by;
+            }
+        }
+
+        $roles = method_exists($actor, 'getRoleNames') ? $actor->getRoleNames() : collect();
+        if ($roles->contains('admin') || $roles->contains('super-admin')) {
+            return $actor->id;
+        }
+        if ($roles->contains('dealer') && !empty($actor->created_by)) {
+            return (int) $actor->created_by;
+        }
+        return $actor->id;
+    }
+
     public function index(Request $request)
     {
         $user = auth()->user();
+        $roles = $user ? $user->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin');
+        $isSuperAdmin = $roles->contains('super-admin');
+        $dealerIds = collect();
+        if ($isAdmin && !$isSuperAdmin) {
+            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+        }
 
         // ====== leer filtros entrantes ======
         $dealerId = $request->input('dealer_id');           // delivery_id
@@ -84,12 +110,14 @@ class SaleController extends Controller
         }
 
         // ====== si es dealer, solo ver ventas asociadas al usuario logueado ======
-        $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect();
         if ($roles->contains('dealer')) {
             $salesQuery->where(function ($q) use ($user) {
                 $q->where('user_id', $user->id)
                     ->orWhere('delivery_id', $user->id);
             });
+        }
+        if ($isAdmin && !$isSuperAdmin) {
+            $salesQuery->whereIn('delivery_id', $dealerIds);
         }
 
         // ====== filtro estado ======
@@ -175,27 +203,44 @@ class SaleController extends Controller
         $dealerLocId = Location::where('type', 'dealer')->where('user_id', $user->id)->value('id');
 
         $roles = $roles ?? (method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect());
+        $isAdmin = $roles->contains('admin');
+        $isSuperAdmin = $roles->contains('super-admin');
+        $allowedLocationIds = collect();
+        if ($isAdmin && !$isSuperAdmin) {
+            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+            $userIds = $dealerIds->push($user->id)->unique()->values();
+            $allowedLocationIds = Location::query()
+                ->whereIn('user_id', $userIds)
+                ->orWhereIn('type', ['principal', 'main'])
+                ->pluck('id');
+        }
         if ($roles->contains('dealer')) {
             $myLocationId = $dealerLocId ?: $userLocId ?: $principalId ?: Location::min('id');
-        } elseif ($roles->contains('admin') || $roles->contains('super-admin')) {
+        } elseif ($isAdmin && !$isSuperAdmin) {
+            $myLocationId = $userLocId ?: 0;
+        } elseif ($isSuperAdmin) {
             $myLocationId = $principalId ?: $userLocId ?: Location::min('id');
         } else {
             $myLocationId = $userLocId ?: $principalId ?: Location::min('id');
         }
 
         // ====== Ítems disponibles en esa ubicación (para el modal carrito) ======
-        $items = Inventory::query()
-            ->leftJoin('inventory_stocks as s', function ($j) use ($myLocationId) {
-                $j->on('s.inventory_id', '=', 'inventories.id')
-                    ->where('s.location_id', $myLocationId);
-            })
-            ->orderBy('inventories.name')
-            ->get([
-                'inventories.id',
-                'inventories.name',
-                'inventories.sale_price',
-                DB::raw('(COALESCE(s.on_hand,0) - COALESCE(s.reserved,0)) as quantity'),
-            ]);
+        if ($myLocationId > 0) {
+            $items = Inventory::query()
+                ->leftJoin('inventory_stocks as s', function ($j) use ($myLocationId) {
+                    $j->on('s.inventory_id', '=', 'inventories.id')
+                        ->where('s.location_id', $myLocationId);
+                })
+                ->orderBy('inventories.name')
+                ->get([
+                    'inventories.id',
+                    'inventories.name',
+                    'inventories.sale_price',
+                    DB::raw('(COALESCE(s.on_hand,0) - COALESCE(s.reserved,0)) as quantity'),
+                ]);
+        } else {
+            $items = collect();
+        }
 
         // ====== Métodos de pago (para modal Y para filtro en la vista) ======
         $paymentMethodsList = PaymentMethod::select('id', 'code', 'name')
@@ -205,6 +250,7 @@ class SaleController extends Controller
         // ====== Dealers (para modal Y para filtro dealer) ======
         $deliverers = User::role('dealer')
             ->whereIn('id', Location::where('type', 'dealer')->whereNotNull('user_id')->pluck('user_id'))
+            ->when($isAdmin && !$isSuperAdmin, fn($q) => $q->where('created_by', $user->id))
             ->select('id', 'name')
             ->orderBy('name')
             ->get();
@@ -218,7 +264,8 @@ class SaleController extends Controller
             'gift' => 'Regalo',
         ];
 
-        $pointsSettings = \App\Models\PointsSetting::first();
+        $pointsAdminId = $this->resolvePointsAdminId($user);
+        $pointsSettings = \App\Models\PointsSetting::where('admin_id', $pointsAdminId)->first();
 
         // Filtros actuales para hidratar el front
         $currentFilters = [
@@ -232,6 +279,15 @@ class SaleController extends Controller
         return Inertia::render('Sales/Index', [
             'sales' => $sales,
             'items' => $items,
+            'locations' => $isAdmin
+                ? Location::query()
+                    ->whereIn('type', ['principal', 'main', 'dealer', 'secondary', 'dealer_secondary'])
+                    ->when($isAdmin && !$isSuperAdmin, fn($q) => $q->whereIn('id', $allowedLocationIds))
+                    ->select('id', 'name', 'type', 'user_id')
+                    ->orderBy('name')
+                    ->get()
+                : [],
+            'current_location_id' => $myLocationId,
             'paymentMethods' => $paymentMethodsList,
             'deliverers' => $deliverers,
             'saleStatuses' => $saleStatuses,
@@ -321,12 +377,31 @@ class SaleController extends Controller
                             ]);
                         }
                     } else {
-                        $locationId = Location::where('user_id', $actor->id)->value('id')
-                            ?? Location::whereIn('type', ['principal', 'main'])->value('id');
+                        $isSuperAdmin = $actorRoles->contains('super-admin');
+                        $locationId = isset($data['location_id']) ? (int) $data['location_id'] : null;
+                        if (!$locationId) {
+                            $locationId = Location::where('user_id', $actor->id)->value('id');
+                        }
+                        if ($locationId && !$isSuperAdmin) {
+                            $dealerIds = User::role('dealer')->where('created_by', $actor->id)->pluck('id');
+                            $userIds = $dealerIds->push($actor->id)->unique()->values();
+                            $allowedLocationIds = Location::query()
+                                ->whereIn('user_id', $userIds)
+                                ->orWhereIn('type', ['principal', 'main'])
+                                ->pluck('id');
+                            if (!$allowedLocationIds->contains($locationId)) {
+                                throw ValidationException::withMessages([
+                                    'location' => 'La ubicación seleccionada no está permitida.',
+                                ]);
+                            }
+                        }
+                        if (!$locationId && $isSuperAdmin) {
+                            $locationId = Location::whereIn('type', ['principal', 'main'])->value('id');
+                        }
 
                         if (!$locationId) {
                             throw ValidationException::withMessages([
-                                'location' => 'No hay ubicación asociada al usuario ni existe una Principal.',
+                                'location' => 'No hay ubicación asociada al usuario.',
                             ]);
                         }
                     }
@@ -383,6 +458,15 @@ class SaleController extends Controller
                         throw ValidationException::withMessages([
                             'items' => "Ítem #{$invId} sin ubicación.",
                         ]);
+                    }
+                    if ($hasDealer === false) {
+                        $actorRoles = method_exists($actor, 'getRoleNames') ? $actor->getRoleNames() : collect();
+                        $isSuperAdmin = $actorRoles->contains('super-admin');
+                        if (!$isSuperAdmin && $lineLocationId !== (int) $locationId) {
+                            throw ValidationException::withMessages([
+                                'items' => 'La ubicación de stock no coincide con tu ubicación asignada.',
+                            ]);
+                        }
                     }
 
                     // Validación por unidad
@@ -511,6 +595,10 @@ class SaleController extends Controller
                 $headerTax = $m2($data['tax'] ?? 0);
                 $pointsToRedeem = max(0, (int) ($data['points_redeem'] ?? 0));
                 $pointsDiscount = 0.0;
+                $pointsAdminId = $this->resolvePointsAdminId(
+                    $actor,
+                    $hasDealer ? (int) $data['delivery_id'] : null
+                );
 
                 if ($pointsToRedeem > 0) {
                     if (!$customerUser) {
@@ -518,7 +606,7 @@ class SaleController extends Controller
                             'points_redeem' => 'Debes asociar un cliente para redimir puntos.',
                         ]);
                     }
-                    $settings = \App\Models\PointsSetting::first();
+                    $settings = \App\Models\PointsSetting::where('admin_id', $pointsAdminId)->first();
                     $valuePerPoint = $settings ? (float) $settings->value_per_point : 0.0;
                     if ($valuePerPoint <= 0) {
                         throw ValidationException::withMessages([
@@ -527,7 +615,7 @@ class SaleController extends Controller
                     }
 
                     $pointsRow = \App\Models\CustomerPoint::firstOrCreate(
-                        ['user_id' => $customerUser->id],
+                        ['user_id' => $customerUser->id, 'admin_id' => $pointsAdminId],
                         ['points_balance' => 0]
                     );
 
@@ -621,7 +709,7 @@ class SaleController extends Controller
                 // ===== Puntos: redimir =====
                 if ($pointsToRedeem > 0 && $customerUser) {
                     $pointsRow = \App\Models\CustomerPoint::firstOrCreate(
-                        ['user_id' => $customerUser->id],
+                        ['user_id' => $customerUser->id, 'admin_id' => $pointsAdminId],
                         ['points_balance' => 0]
                     );
                     $pointsRow->points_balance = max(0, (int) $pointsRow->points_balance - $pointsToRedeem);
@@ -630,6 +718,7 @@ class SaleController extends Controller
                     \App\Models\PointsTransaction::create([
                         'user_id' => $customerUser->id,
                         'sale_id' => $sale->id,
+                        'admin_id' => $pointsAdminId,
                         'type' => 'redeem',
                         'points' => -$pointsToRedeem,
                         'note' => 'Redención en venta',
@@ -642,7 +731,7 @@ class SaleController extends Controller
                     $pointsEarned = (int) count($lines);
                     if ($pointsEarned > 0) {
                         $pointsRow = \App\Models\CustomerPoint::firstOrCreate(
-                            ['user_id' => $customerUser->id],
+                            ['user_id' => $customerUser->id, 'admin_id' => $pointsAdminId],
                             ['points_balance' => 0]
                         );
                         $pointsRow->points_balance = (int) $pointsRow->points_balance + $pointsEarned;
@@ -651,6 +740,7 @@ class SaleController extends Controller
                         \App\Models\PointsTransaction::create([
                             'user_id' => $customerUser->id,
                             'sale_id' => $sale->id,
+                            'admin_id' => $pointsAdminId,
                             'type' => 'earn',
                             'points' => $pointsEarned,
                             'note' => 'Puntos por compra',
@@ -1217,6 +1307,50 @@ class SaleController extends Controller
             'created_by' => $actorId,
             'note' => $note,
         ]);
+    }
+
+    public function itemsByLocation(Request $request)
+    {
+        $user = $request->user();
+        $locationId = (int) $request->query('location_id');
+        if ($locationId <= 0) {
+            return response()->json(['items' => []]);
+        }
+
+        $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin');
+        $isSuperAdmin = $roles->contains('super-admin');
+        if ($isAdmin && !$isSuperAdmin) {
+            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+            $userIds = $dealerIds->push($user->id)->unique()->values();
+            $allowedLocationIds = Location::query()
+                ->whereIn('user_id', $userIds)
+                ->orWhereIn('type', ['principal', 'main'])
+                ->pluck('id');
+            if (!$allowedLocationIds->contains($locationId)) {
+                abort(403);
+            }
+        } elseif ($roles->contains('dealer')) {
+            $dealerLocId = Location::where('type', 'dealer')->where('user_id', $user->id)->value('id');
+            if ((int) $dealerLocId !== (int) $locationId) {
+                abort(403);
+            }
+        }
+
+        $items = Inventory::query()
+            ->leftJoin('inventory_stocks as s', function ($j) use ($locationId) {
+                $j->on('s.inventory_id', '=', 'inventories.id')
+                    ->where('s.location_id', $locationId);
+            })
+            ->orderBy('inventories.name')
+            ->get([
+                'inventories.id',
+                'inventories.name',
+                'inventories.sale_price',
+                DB::raw('(COALESCE(s.on_hand,0) - COALESCE(s.reserved,0)) as quantity'),
+            ]);
+
+        return response()->json(['items' => $items]);
     }
 
     /**

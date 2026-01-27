@@ -15,8 +15,14 @@ class ReportsController extends Controller
 {
     public function salesPage(Request $request)
     {
+        $user = auth()->user();
+        $roles = $user ? $user->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin');
+        $isSuperAdmin = $roles->contains('super-admin');
+
         $deliverers = User::role('dealer')
             ->whereIn('id', \App\Models\Location::where('type', 'dealer')->whereNotNull('user_id')->pluck('user_id'))
+            ->when($isAdmin && !$isSuperAdmin, fn($q) => $q->where('created_by', $user->id))
             ->select('id', 'name')
             ->orderBy('name')
             ->get();
@@ -149,6 +155,14 @@ class ReportsController extends Controller
             $salesQuery->where(function ($q) use ($user) {
                 $q->where('user_id', $user->id)
                     ->orWhere('delivery_id', $user->id);
+            });
+        }
+        if ($user && $roles->contains('admin') && !$roles->contains('super-admin')) {
+            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+            $userIds = $dealerIds->push($user->id)->unique()->values();
+            $salesQuery->where(function ($q) use ($userIds) {
+                $q->whereIn('user_id', $userIds)
+                    ->orWhereIn('delivery_id', $userIds);
             });
         }
 

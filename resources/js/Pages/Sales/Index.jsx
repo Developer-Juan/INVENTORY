@@ -219,7 +219,9 @@ function paymentNames(sale) {
 export default function Index() {
     const {
         sales,
-        items = [],
+        items: initialItems = [],
+        locations: saleLocations = [],
+        current_location_id: currentLocationId = null,
         paymentMethods = [],
         deliverers = [],
         saleStatuses = {},   // <-- mapa tipo { pagado: 'Pagado', parcial: 'Parcial', ... }
@@ -237,9 +239,70 @@ export default function Index() {
             : [];
         return roles.includes('admin') || roles.includes('super-admin');
     }, [auth]);
+    const isDealer = useMemo(() => {
+        const rolesRaw = auth?.user?.roles ?? auth?.roles ?? [];
+        const roles = Array.isArray(rolesRaw)
+            ? rolesRaw.map(r => (typeof r === 'string' ? r : r?.name)).filter(Boolean)
+            : [];
+        return roles.includes('dealer');
+    }, [auth]);
 
     const rows = Array.isArray(sales) ? sales : (sales?.data ?? []);
     const links = Array.isArray(sales) ? [] : (sales?.links ?? []);
+
+    const [inventoryItems, setInventoryItems] = useState(initialItems);
+    const [cartLocationId, setCartLocationId] = useState(currentLocationId ?? '');
+    const [cartLocationLoading, setCartLocationLoading] = useState(false);
+
+    useEffect(() => {
+        setInventoryItems(initialItems);
+    }, [initialItems]);
+
+    useEffect(() => {
+        if (!isAdmin) return;
+        if (saleLocations.length === 0) return;
+        const ids = saleLocations.map((l) => Number(l.id));
+        const currentId = Number(cartLocationId || 0);
+        if (!currentId || !ids.includes(currentId)) {
+            setCartLocationId(ids[0]);
+        }
+    }, [isAdmin, saleLocations, cartLocationId]);
+
+    useEffect(() => {
+        if (!isAdmin) return;
+        if (!cartLocationId) {
+            setInventoryItems([]);
+            return;
+        }
+        let abort = false;
+        const load = async () => {
+            try {
+                setCartLocationLoading(true);
+                const res = await fetch(
+                    route('sales.items.by-location', { location_id: cartLocationId }, false),
+                    {
+                        credentials: 'same-origin',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    }
+                );
+                if (!res.ok) throw new Error('Fetch failed');
+                const data = await res.json();
+                if (!abort) setInventoryItems(Array.isArray(data?.items) ? data.items : []);
+            } catch (e) {
+                if (!abort) {
+                    setInventoryItems([]);
+                    toast.error('No se pudo cargar el stock de la ubicación');
+                }
+                console.error(e);
+            } finally {
+                if (!abort) setCartLocationLoading(false);
+            }
+        };
+        load();
+        return () => {
+            abort = true;
+        };
+    }, [isAdmin, cartLocationId]);
 
     const statusLabel = (status) => saleStatuses?.[status] ?? status;
     const statusClass = (status) => {
@@ -293,6 +356,7 @@ export default function Index() {
     const [cartItems, setCartItems] = useState([]);
     const [bulkFlow, setBulkFlow] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [cartProcessing, setCartProcessing] = useState(false);
 
     const STEP = 0.5;
     const clampFloat = (n, min, max) => Math.max(min, Math.min(max, n));
@@ -330,27 +394,33 @@ export default function Index() {
             : '0';
     };
 
-    const setQty = (id, raw, max) => {
+    const maxQty = (max) => {
+        const n = normalizeDecimal(max);
+        return Number.isFinite(n) ? n : 0;
+    };
+    const setQty = (id, raw) => {
         if (raw === '') return setCart(p => ({ ...p, [id]: '' }));
-        const n = normalizeDecimal(raw);
-        if (n === '') return;
-        setCart(p => ({ ...p, [id]: clampFloat(n, 0, Number(max ?? 0)) }));
+        const cleaned = String(raw).replace(',', '.');
+        if (!/^\d*([.]\d*)?$/.test(cleaned)) return;
+        setCart(p => ({ ...p, [id]: cleaned }));
     };
     const commitQty = (id, max) => {
+        const cap = maxQty(max);
         setCart(prev => {
             const raw = prev[id];
             if (raw === '' || raw === undefined) return { ...prev, [id]: '' };
             let n = normalizeDecimal(raw); if (n === '') n = 0;
-            n = clampFloat(snapToStep(n), 0, Number(max ?? 0));
+            n = clampFloat(snapToStep(n), 0, cap);
             if (n > 0 && n < STEP) n = STEP;
             return { ...prev, [id]: n };
         });
     };
     function addQty(id, delta, max) {
+        const cap = maxQty(max);
         setCart(prev => {
             const cur = normalizeDecimal(prev[id] ?? 0) || 0;
             const next = cur === 0 && delta > 0 ? STEP : cur + (delta * STEP);
-            return { ...prev, [id]: clampFloat(snapToStep(next), 0, Number(max ?? 0)) };
+            return { ...prev, [id]: clampFloat(snapToStep(next), 0, cap) };
         });
     }
 
@@ -388,10 +458,10 @@ export default function Index() {
     // ===== Total carrito =====
     const totalSum = useMemo(() => {
         return Object.entries(cart).reduce((acc, [id, qtyRaw]) => {
-            const prod = items.find(x => x.id === Number(id));
+            const prod = inventoryItems.find(x => x.id === Number(id));
             if (!prod) return acc;
             let qty = normalizeDecimal(qtyRaw ?? 0) || 0;
-            qty = clampFloat(snapToStep(qty), 0, Number(prod.quantity ?? 0));
+            qty = clampFloat(snapToStep(qty), 0, maxQty(prod.quantity ?? 0));
             if (qty <= 0) return acc;
             const override = linePrice[id];
             const lineTotal =
@@ -399,7 +469,7 @@ export default function Index() {
                     : Number(prod.sale_price ?? 0) * qty;
             return acc + (Number.isFinite(lineTotal) ? lineTotal : 0);
         }, 0);
-    }, [cart, linePrice, items]);
+    }, [cart, linePrice, inventoryItems]);
 
     // ===== Pago / deuda =====
     const [openPay, setOpenPay] = useState(false);
@@ -477,6 +547,13 @@ export default function Index() {
     }, [totalAfterDiscount, bulkFlow]);
 
     useEffect(() => {
+        if (!isDealer) return;
+        if (auth?.user?.id) {
+            setDeliveryId(String(auth.user.id));
+        }
+    }, [isDealer, auth?.user?.id]);
+
+    useEffect(() => {
         if (bulkFlow && newDue > 0 && customer) {
             setPd((d) => ({
                 ...d,
@@ -489,13 +566,14 @@ export default function Index() {
     useEffect(() => { if (!deliveryId) setKm(''); }, [deliveryId]);
 
     function doCheckout() {
+        setCartProcessing(true);
         const lines = Object.entries(cart)
             .map(([i, qtyRaw]) => {
-                const prod = items.find(x => x.id === Number(i));
+                const prod = inventoryItems.find(x => x.id === Number(i));
                 if (!prod) return null;
 
                 let qty = normalizeDecimal(qtyRaw ?? 0) || 0;
-                qty = clampFloat(snapToStep(qty), 0, Number(prod.quantity ?? 0));
+                qty = clampFloat(snapToStep(qty), 0, maxQty(prod.quantity ?? 0));
                 if (qty > 0 && qty < STEP) qty = STEP;
                 if (qty < STEP) return null;
 
@@ -529,6 +607,7 @@ export default function Index() {
         setBulkFlow(true);
         setOpenCart(false);
         setOpenPay(true);
+        setCartProcessing(false);
     }
 
     function beginPay(sale) {
@@ -566,7 +645,8 @@ export default function Index() {
 
         try {
             setLookupLoading(true);
-            const res = await fetch(route('customers.lookup', { phone }), {
+            const res = await fetch(route('customers.lookup', { phone }, false), {
+                credentials: 'same-origin',
                 headers: { 'X-Requested-With': 'XMLHttpRequest' },
             });
             if (!res.ok) {
@@ -597,8 +677,9 @@ export default function Index() {
         }
         try {
             setLookupLoading(true);
-            const res = await fetch(route('customers.store'), {
+            const res = await fetch(route('customers.store', {}, false), {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest',
@@ -687,6 +768,8 @@ export default function Index() {
             if (hasDelivery) {
                 payload.delivery_id = Number(deliveryId);
                 payload.km = kmVal;
+            } else if (cartLocationId) {
+                payload.location_id = Number(cartLocationId);
             }
 
                 router.post(route('sales.store'), payload, {
@@ -1151,12 +1234,46 @@ export default function Index() {
                         </div>
 
                         <div className="p-4 md:p-5 flex-1 overflow-y-auto md:max-h-[65vh]">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-                                {items.map((prod) => (
-                                    <div
-                                        key={prod.id}
-                                        className="border p-3 md:p-4 rounded-lg"
-                                    >
+                            {isAdmin && (
+                                <div className="mb-4">
+                                    <label className="block text-sm font-medium text-gray-700">
+                                        Ubicación de stock
+                                    </label>
+                                    <div className="mt-1 flex items-center gap-2">
+                                        <select
+                                            className="border rounded-md px-3 py-2 text-sm w-full"
+                                            value={cartLocationId ?? ''}
+                                            onChange={(e) => {
+                                                const next = e.target.value ? Number(e.target.value) : '';
+                                                setCartLocationId(next);
+                                                setCart({});
+                                                setLinePrice({});
+                                            }}
+                                        >
+                                            <option value="">— Selecciona —</option>
+                                            {saleLocations.map((loc) => (
+                                                <option key={loc.id} value={loc.id}>
+                                                    {String(loc.type).toUpperCase()} · {loc.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {cartLocationLoading && (
+                                            <span className="text-xs text-gray-500">Cargando…</span>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                            {inventoryItems.length === 0 ? (
+                                <div className="text-sm text-gray-500">
+                                    No hay productos disponibles en esta ubicación.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                                    {inventoryItems.map((prod) => (
+                                        <div
+                                            key={prod.id}
+                                            className="border p-3 md:p-4 rounded-lg"
+                                        >
                                         <h3 className="font-semibold text-sm md:text-base">
                                             {prod.name ??
                                                 prod.code ??
@@ -1214,8 +1331,7 @@ export default function Index() {
                                                 onChange={(e) =>
                                                     setQty(
                                                         prod.id,
-                                                        e.target.value,
-                                                        prod.quantity
+                                                        e.target.value
                                                     )
                                                 }
                                                 onBlur={() =>
@@ -1241,9 +1357,10 @@ export default function Index() {
                                                 ＋
                                             </button>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         <div className="p-4 md:p-5 border-t sticky bottom-0 bg-white z-10">
@@ -1253,9 +1370,34 @@ export default function Index() {
                                 </div>
                                 <button
                                     onClick={doCheckout}
-                                    className="w-full md:w-auto px-4 py-3 md:py-2 bg-green-600 text-white rounded-md"
+                                    className={`w-full md:w-auto px-4 py-3 md:py-2 text-white rounded-md ${cartProcessing ? 'bg-gray-400' : 'bg-green-600'}`}
+                                    disabled={cartProcessing}
                                 >
-                                    Continuar
+                                    <span className="inline-flex items-center gap-2">
+                                        {cartProcessing && (
+                                            <svg
+                                                className="h-4 w-4 animate-spin"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                aria-hidden="true"
+                                            >
+                                                <circle
+                                                    className="opacity-25"
+                                                    cx="12"
+                                                    cy="12"
+                                                    r="10"
+                                                    stroke="currentColor"
+                                                    strokeWidth="4"
+                                                />
+                                                <path
+                                                    className="opacity-75"
+                                                    fill="currentColor"
+                                                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                                                />
+                                            </svg>
+                                        )}
+                                        {cartProcessing ? 'Procesando…' : 'Continuar'}
+                                    </span>
                                 </button>
                             </div>
                         </div>
@@ -1335,7 +1477,7 @@ export default function Index() {
 
                                     <div>
                                         <label className="block text-sm">
-                                            Dealer
+                                            Delivery
                                         </label>
                                         <select
                                             className="mt-1 w-full border px-3 py-2 rounded-md"
@@ -1343,6 +1485,7 @@ export default function Index() {
                                             onChange={(e) =>
                                                 setDeliveryId(e.target.value)
                                             }
+                                            disabled={isDealer}
                                         >
                                             <option value="">
                                                 — Sin dealer —
@@ -1576,9 +1719,31 @@ export default function Index() {
                                         }`}
                                     disabled={submitting}
                                 >
-                                    {submitting
-                                        ? 'Procesando…'
-                                        : 'Confirmar'}
+                                    <span className="inline-flex items-center gap-2">
+                                        {submitting && (
+                                            <svg
+                                                className="h-4 w-4 animate-spin"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                aria-hidden="true"
+                                            >
+                                                <circle
+                                                    className="opacity-25"
+                                                    cx="12"
+                                                    cy="12"
+                                                    r="10"
+                                                    stroke="currentColor"
+                                                    strokeWidth="4"
+                                                />
+                                                <path
+                                                    className="opacity-75"
+                                                    fill="currentColor"
+                                                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                                                />
+                                            </svg>
+                                        )}
+                                        {submitting ? 'Procesando…' : 'Confirmar'}
+                                    </span>
                                 </button>
                             </div>
                         </div>

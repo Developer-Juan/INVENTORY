@@ -11,6 +11,18 @@ use Spatie\Permission\Models\Role;
 
 class CustomerController extends Controller
 {
+    private function resolvePointsAdminId(User $actor): ?int
+    {
+        $roles = method_exists($actor, 'getRoleNames') ? $actor->getRoleNames() : collect();
+        if ($roles->contains('admin') || $roles->contains('super-admin')) {
+            return $actor->id;
+        }
+        if ($roles->contains('dealer') && !empty($actor->created_by)) {
+            return (int) $actor->created_by;
+        }
+        return $actor->id;
+    }
+
     public function lookup(Request $request)
     {
         $data = $request->validate([
@@ -25,8 +37,10 @@ class CustomerController extends Controller
             return response()->json(['found' => false]);
         }
 
+        $actor = $request->user();
+        $adminId = $actor ? $this->resolvePointsAdminId($actor) : null;
         $points = CustomerPoint::firstOrCreate(
-            ['user_id' => $user->id],
+            ['user_id' => $user->id, 'admin_id' => $adminId],
             ['points_balance' => 0]
         );
 
@@ -68,8 +82,10 @@ class CustomerController extends Controller
         $role = Role::firstOrCreate(['name' => 'customer']);
         $user->assignRole($role);
 
+        $actor = $request->user();
+        $adminId = $actor ? $this->resolvePointsAdminId($actor) : null;
         $points = CustomerPoint::firstOrCreate(
-            ['user_id' => $user->id],
+            ['user_id' => $user->id, 'admin_id' => $adminId],
             ['points_balance' => 0]
         );
 

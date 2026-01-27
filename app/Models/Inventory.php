@@ -17,6 +17,7 @@ class Inventory extends Model
         'unit',
         'purchase_price',
         'sale_price',
+        'created_by',
     ];
 
     // Configuración para los precios y cantidades

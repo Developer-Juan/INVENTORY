@@ -34,11 +34,16 @@ class InventoryController extends Controller
 
     public function index(Request $r)
     {
-        // id de la ubicación principal (principal/main)
+        $user = $r->user();
+        $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin');
+        $isSuperAdmin = $roles->contains('super-admin');
+        // id de la ubicaciÃ³n principal (principal/main)
         $principalId = Location::whereIn('type', ['principal', 'main'])->value('id');
 
         $items = Inventory::query()
             ->leftJoin('inventory_stocks as s', 's.inventory_id', '=', 'inventories.id')
+            ->when($isAdmin && !$isSuperAdmin, fn($q) => $q->where('inventories.created_by', $user->id))
             ->select([
                 'inventories.id',
                 'inventories.name',
@@ -46,10 +51,10 @@ class InventoryController extends Controller
                 'inventories.purchase_price',
                 'inventories.sale_price',
 
-                // DECIMAL: SUM(...) ya devuelve decimal, COALESCE(...,0) lo deja como numérico
+                // DECIMAL: SUM(...) ya devuelve decimal, COALESCE(...,0) lo deja como numÃ©rico
                 DB::raw('COALESCE(SUM(s.on_hand - s.reserved), 0) as available_total'),
 
-                // mínimo de la sede principal (puede ser decimal también, ej 0.5)
+                // mÃ­nimo de la sede principal (puede ser decimal tambiÃ©n, ej 0.5)
                 DB::raw('COALESCE(MAX(CASE WHEN s.location_id = ' . ((int) $principalId) . ' THEN s.min_stock END), 0) as principal_min_stock'),
             ])
             ->groupBy(
@@ -64,8 +69,8 @@ class InventoryController extends Controller
             ->withQueryString();
 
         // OJO:
-        // available_total y principal_min_stock salen como string numérica en MySQL.
-        // El front debe tratarlos como número o parseFloat.
+        // available_total y principal_min_stock salen como string numÃ©rica en MySQL.
+        // El front debe tratarlos como nÃºmero o parseFloat.
         // Si quieres castearlos en PHP antes de mandarlos al front:
         $items->getCollection()->transform(function ($row) {
             $row->available_total = (float) $row->available_total;
@@ -87,6 +92,7 @@ class InventoryController extends Controller
     public function store(InventoryRequest $req)
     {
         $data = $req->validated();
+        $user = $req->user();
 
         $purchase = (float) ($data['purchase_price'] ?? 0);
         $sale = (float) ($data['sale_price'] ?? 0);
@@ -94,16 +100,16 @@ class InventoryController extends Controller
         // DECIMAL: stock inicial puede ser fraccionario tipo 1.5
         $initialQty = $this->normalizeHalfStep($data['quantity'] ?? 0);
 
-        // mínimo permitido en principal (también lo hago decimal por consistencia)
+        // mÃ­nimo permitido en principal (tambiÃ©n lo hago decimal por consistencia)
         $minStock = $this->normalizeHalfStep($data['min_stock'] ?? 0);
 
-        // Ubicación principal garantizada
+        // UbicaciÃ³n principal garantizada
         $principal = Location::firstOrCreate(
             ['type' => 'principal'],
             ['name' => 'Principal']
         );
 
-        DB::transaction(function () use ($data, $purchase, $sale, $initialQty, $minStock, $principal) {
+        DB::transaction(function () use ($data, $purchase, $sale, $initialQty, $minStock, $principal, $user) {
             // Crear el producto
             $item = Inventory::create([
                 'name' => $data['name'],
@@ -113,9 +119,10 @@ class InventoryController extends Controller
                 'sale_price' => $sale,
                 // Si mantienes columna quantity en inventories y ahora es DECIMAL:
                 'quantity' => $initialQty,
+                'created_by' => $user?->id,
             ]);
 
-            // Crear el stock inicial en la ubicación principal
+            // Crear el stock inicial en la ubicaciÃ³n principal
             InventoryStock::create([
                 'inventory_id' => $item->id,
                 'location_id' => $principal->id,
@@ -151,7 +158,7 @@ class InventoryController extends Controller
             ->select(DB::raw('COALESCE(SUM(on_hand - reserved),0) as total'))
             ->value('total');
 
-        // mínimo en principal
+        // mÃ­nimo en principal
         $principalMin = (float) InventoryStock::where('inventory_id', $inventory->id)
             ->where('location_id', $principalId)
             ->value('min_stock') ?? 0.0;
@@ -200,18 +207,18 @@ class InventoryController extends Controller
             'sale_price' => $salePrice,
             // OJO: normalmente quantity en inventories ya no se toca directo
             // porque el stock real vive en inventory_stocks, PERO
-            // si sigues usando ese campo como "stock global" lo podemos actualizar también:
-            // sólo si viene explícito en la request.
+            // si sigues usando ese campo como "stock global" lo podemos actualizar tambiÃ©n:
+            // sÃ³lo si viene explÃ­cito en la request.
             'quantity' => $req->has('quantity')
                 ? $this->normalizeHalfStep($req->input('quantity'))
                 : $inventory->quantity,
         ]);
 
-        // 2) Manejo de stock por ubicación (opcional en el form)
+        // 2) Manejo de stock por ubicaciÃ³n (opcional en el form)
         // Espera:
         //   stock_op   = none | set | inc
         //   stock_value = "1.5", "-0.5", etc
-        //   location_id = id ubicación
+        //   location_id = id ubicaciÃ³n
         $stockOp = $req->input('stock_op');       // none|set|inc
         $stockValueR = $req->input('stock_value');    // string/num
         $locIdIn = $req->input('location_id');    // opcional
@@ -270,7 +277,7 @@ class InventoryController extends Controller
             'min_stock' => $this->normalizeHalfStep($data['min_stock']),
         ]);
 
-        return back()->with('success', 'Mínimo actualizado.');
+        return back()->with('success', 'MÃ­nimo actualizado.');
     }
 
     public function destroy(Inventory $inventory)
@@ -288,6 +295,11 @@ class InventoryController extends Controller
         if (mb_strlen($term) < 2) {
             return response()->json([]);
         }
+
+        $user = $r->user();
+        $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin');
+        $isSuperAdmin = $roles->contains('super-admin');
 
         $locationIdParam = (int) $r->query('location_id', 0);
 
@@ -314,6 +326,7 @@ class InventoryController extends Controller
                 $j->on('s.inventory_id', '=', 'inventories.id')
                     ->where('s.location_id', $originId);
             })
+            ->when($isAdmin && !$isSuperAdmin, fn($q) => $q->where('inventories.created_by', $user->id))
             ->where(function ($q) use ($term) {
                 $q->where('inventories.name', 'like', "%{$term}%");
                 if (ctype_digit($term)) {

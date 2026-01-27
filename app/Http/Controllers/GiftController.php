@@ -20,9 +20,28 @@ use Illuminate\Support\Str;
 
 class GiftController extends Controller
 {
+    private function resolvePointsAdminId(User $actor): ?int
+    {
+        $roles = method_exists($actor, 'getRoleNames') ? $actor->getRoleNames() : collect();
+        if ($roles->contains('admin') || $roles->contains('super-admin')) {
+            return $actor->id;
+        }
+        if ($roles->contains('dealer') && !empty($actor->created_by)) {
+            return (int) $actor->created_by;
+        }
+        return $actor->id;
+    }
+
     public function index()
     {
         $user = auth()->user();
+        $roles = $user ? $user->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin');
+        $isSuperAdmin = $roles->contains('super-admin');
+        $dealerIds = collect();
+        if ($isAdmin && !$isSuperAdmin) {
+            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+        }
 
         $principalId = Location::whereIn('type', ['principal', 'main'])->value('id');
         $userLocId = Location::where('user_id', $user->id)->value('id');
@@ -44,12 +63,15 @@ class GiftController extends Controller
         $dealerLocations = Location::query()
             ->where('type', 'dealer')
             ->whereNotNull('user_id')
+            ->when($isAdmin && !$isSuperAdmin, fn($q) => $q->whereIn('user_id', $dealerIds))
             ->with('user:id,name')
             ->select('id', 'name', 'user_id')
             ->orderBy('name')
             ->get();
 
+        $adminId = $user ? $this->resolvePointsAdminId($user) : null;
         $rewards = PointsReward::query()
+            ->where('admin_id', $adminId)
             ->where('is_active', true)
             ->orderBy('points_required')
             ->get(['id', 'name', 'points_required', 'description', 'is_active']);
@@ -74,9 +96,11 @@ class GiftController extends Controller
             return response()->json(['found' => false]);
         }
 
+        $actor = auth()->user();
+        $adminId = $actor ? $this->resolvePointsAdminId($actor) : null;
         $hasPurchased = Sale::where('customer_user_id', $user->id)->exists();
         $pointsRow = \App\Models\CustomerPoint::firstOrCreate(
-            ['user_id' => $user->id],
+            ['user_id' => $user->id, 'admin_id' => $adminId],
             ['points_balance' => 0]
         );
 
@@ -104,6 +128,13 @@ class GiftController extends Controller
         ]);
 
         $actor = auth()->user();
+        $roles = $actor ? $actor->getRoleNames() : collect();
+        $isAdmin = $roles->contains('admin');
+        $isSuperAdmin = $roles->contains('super-admin');
+        $dealerIds = collect();
+        if ($isAdmin && !$isSuperAdmin) {
+            $dealerIds = User::role('dealer')->where('created_by', $actor->id)->pluck('id');
+        }
 
         return DB::transaction(function () use ($data, $actor) {
             $m2 = fn($n) => round((float) $n, 2);
@@ -146,6 +177,7 @@ class GiftController extends Controller
                     ->where('type', 'dealer')
                     ->whereNotNull('user_id')
                     ->where('id', (int) $data['dealer_location_id'])
+                    ->when($isAdmin && !$isSuperAdmin, fn($q) => $q->whereIn('user_id', $dealerIds))
                     ->first();
 
                 if (!$dealerLocation) {

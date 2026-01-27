@@ -10,6 +10,7 @@ class PointsReward extends Model
     use HasFactory;
 
     protected $fillable = [
+        'admin_id',
         'name',
         'points_required',
         'description',

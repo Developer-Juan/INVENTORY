@@ -25,6 +25,7 @@ class StoreSaleRequest extends FormRequest
             // Delivery (opcional)
             'delivery_id' => ['nullable', 'integer', 'exists:users,id'],
             'km' => ['sometimes', 'numeric', 'gt:0'],
+            'location_id' => ['nullable', 'integer', 'exists:locations,id'],
 
             // Totales cabecera
             'discount' => ['nullable', 'numeric', 'min:0'],

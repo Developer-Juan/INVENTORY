@@ -154,6 +154,10 @@ Route::middleware(['auth'])->group(function () {
         ->name('inventories.search');
     Route::resource('inventories', InventoryController::class);
 
+    // Ventas: items por ubicación (debe ir antes del resource para evitar colisión con {sale})
+    Route::get('sales/items-by-location', [SaleController::class, 'itemsByLocation'])
+        ->name('sales.items.by-location');
+
     // Ventas: crear con carrito + ver detalle
     Route::resource('sales', SaleController::class)
         ->only(['index', 'create', 'store', 'show']);

@@ -75,7 +75,7 @@ class NotificationController extends Controller
         $roleNames = Role::whereIn('name', ['dealer'])->pluck('name');
         $dealers = $roleNames->isEmpty()
             ? collect()
-            : User::role($roleNames)->get();
+            : User::role($roleNames)->where('created_by', $user->id)->get();
 
         foreach ($dealers as $dealer) {
             $dealer->notify(new DealerNoticeNotification($data['title'], $data['message']));
