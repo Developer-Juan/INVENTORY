@@ -7,6 +7,8 @@ import 'react-phone-input-2/lib/style.css';
 export default function PublicLookup(props) {
     const [navScrolled, setNavScrolled] = useState(false);
     const scrollContainerRef = useRef(null);
+    const initialOverflowRef = useRef({ html: '', body: '' });
+    const [isZoomed, setIsZoomed] = useState(false);
 
     const [phone, setPhone] = useState('');
     const [result, setResult] = useState(null);
@@ -27,9 +29,13 @@ export default function PublicLookup(props) {
         if (!el) return;
         const headerOffset = 96;
         const container = scrollContainerRef.current;
-        if (!container) return;
-        const elementTop = el.getBoundingClientRect().top + container.scrollTop;
+        const useWindowScroll = isZoomed || !container;
+        const elementTop = el.getBoundingClientRect().top + (useWindowScroll ? window.scrollY : container.scrollTop);
         const targetTop = Math.max(0, elementTop - headerOffset);
+        if (useWindowScroll) {
+            window.scrollTo({ top: targetTop, behavior: 'smooth' });
+            return;
+        }
         container.scrollTo({ top: targetTop, behavior: 'smooth' });
     };
 
@@ -37,9 +43,9 @@ export default function PublicLookup(props) {
         const targets = sectionIds.map((id) => document.getElementById(id)).filter(Boolean);
         if (!targets.length) return;
         const container = scrollContainerRef.current;
-        if (!container) return;
+        const useWindowScroll = isZoomed || !container;
 
-        const top = container.scrollTop + 8;
+        const top = (useWindowScroll ? window.scrollY : container.scrollTop) + 8;
         const positions = targets.map((el) => ({ id: el.id, top: el.offsetTop }));
 
         const currentIndex = positions.findIndex((item, index) => {
@@ -79,6 +85,7 @@ export default function PublicLookup(props) {
 
             if (!data?.found) {
                 setResult({ found: false });
+                requestAnimationFrame(() => scrollToSection('resultado'));
                 return;
             }
 
@@ -90,8 +97,7 @@ export default function PublicLookup(props) {
                 breakdown: Array.isArray(data?.breakdown) ? data.breakdown : [],
             });
 
-            // opcional: llevar al resultado luego de consultar
-            // scrollToSection('resultado');
+            requestAnimationFrame(() => scrollToSection('resultado'));
         } catch (e2) {
             console.error(e2);
             setError('No se pudo consultar en este momento.');
@@ -105,31 +111,60 @@ export default function PublicLookup(props) {
     const onPhoneFocus = () => {
         requestAnimationFrame(() => {
             // Asegura que el bloque "consulta" quede visible bajo el header sticky
-            scrollToSection('consulta');
+            if (!isZoomed) scrollToSection('consulta');
         });
     };
 
-    // Welcome: lock scroll global
+    // Track viewport zoom (iOS pinch/auto-zoom) to avoid breaking custom scroll.
     useEffect(() => {
-        const prevHtmlOverflow = document.documentElement.style.overflow;
-        const prevBodyOverflow = document.body.style.overflow;
+        const vv = window.visualViewport;
+        if (!vv) return undefined;
+        const onViewportChange = () => setIsZoomed(vv.scale > 1.01);
+        onViewportChange();
+        vv.addEventListener('resize', onViewportChange);
+        vv.addEventListener('scroll', onViewportChange);
+        return () => {
+            vv.removeEventListener('resize', onViewportChange);
+            vv.removeEventListener('scroll', onViewportChange);
+        };
+    }, []);
+
+    // Welcome: lock scroll global (unless zoomed)
+    useEffect(() => {
+        if (!initialOverflowRef.current.html && !initialOverflowRef.current.body) {
+            initialOverflowRef.current = {
+                html: document.documentElement.style.overflow,
+                body: document.body.style.overflow,
+            };
+        }
+        if (isZoomed) {
+            document.documentElement.style.overflow = initialOverflowRef.current.html;
+            document.body.style.overflow = initialOverflowRef.current.body;
+            return undefined;
+        }
         document.documentElement.style.overflow = 'hidden';
         document.body.style.overflow = 'hidden';
         return () => {
-            document.documentElement.style.overflow = prevHtmlOverflow;
-            document.body.style.overflow = prevBodyOverflow;
+            document.documentElement.style.overflow = initialOverflowRef.current.html;
+            document.body.style.overflow = initialOverflowRef.current.body;
         };
-    }, []);
+    }, [isZoomed]);
 
     // Welcome: sticky header changes on scroll
     useEffect(() => {
         const container = scrollContainerRef.current;
-        if (!container) return undefined;
-        const onScroll = () => setNavScrolled(container.scrollTop > 12);
+        const onScroll = () => {
+            const top = isZoomed || !container ? window.scrollY : container.scrollTop;
+            setNavScrolled(top > 12);
+        };
         onScroll();
+        if (isZoomed || !container) {
+            window.addEventListener('scroll', onScroll, { passive: true });
+            return () => window.removeEventListener('scroll', onScroll);
+        }
         container.addEventListener('scroll', onScroll, { passive: true });
         return () => container.removeEventListener('scroll', onScroll);
-    }, [scrollContainerRef]);
+    }, [scrollContainerRef, isZoomed]);
 
     // Welcome: reveal on scroll
     useEffect(() => {
@@ -179,7 +214,10 @@ export default function PublicLookup(props) {
                 <meta name="twitter:image" content={ogImage} />
             </Head>
 
-            <div ref={scrollContainerRef} className="welcome-scroll relative bg-sand-50 text-ink-900">
+            <div
+                ref={scrollContainerRef}
+                className={`welcome-scroll relative bg-sand-50 text-ink-900 ${isZoomed ? 'is-zoomed' : ''}`}
+            >
                 {/* Aurora + grid */}
                 <div className="pointer-events-none absolute -top-24 right-0 h-[520px] w-[520px] rounded-full bg-aurora-1 blur-[120px]" />
                 <div className="pointer-events-none absolute -bottom-40 -left-10 h-[520px] w-[520px] rounded-full bg-aurora-2 blur-[140px]" />
@@ -583,6 +621,10 @@ export default function PublicLookup(props) {
                     scrollbar-width: none;
                     -ms-overflow-style: none;
                     -webkit-overflow-scrolling: touch;
+                }
+                .welcome-scroll.is-zoomed {
+                    height: auto;
+                    overflow: visible;
                 }
                 .welcome-scroll::-webkit-scrollbar { width: 0; height: 0; }
 
