@@ -254,8 +254,66 @@ export default function Index() {
     const [cartLocationId, setCartLocationId] = useState(currentLocationId ?? '');
     const [cartLocationLoading, setCartLocationLoading] = useState(false);
 
+    // ===== Pago / deuda (declarado temprano para evitar TDZ en efectos) =====
+    const [openPay, setOpenPay] = useState(false);
+    const [selected, setSelected] = useState(null);
+    const [pd, setPd] = useState({ paid: 0, pay: '', name: '', phone: '' });
+    const [newDue, setNewDue] = useState(0);
+
+    const [methodId, setMethodId] = useState(paymentMethods[0]?.id ?? null);
+    const [reference, setReference] = useState('');
+    const [customerId, setCustomerId] = useState('');
+    const [customer, setCustomer] = useState(null);
+    const [lookupLoading, setLookupLoading] = useState(false);
+    const [openCustomerModal, setOpenCustomerModal] = useState(false);
+    const [newCustomerName, setNewCustomerName] = useState('');
+    const [newCustomerPhone, setNewCustomerPhone] = useState('');
+    const [pointsRedeem, setPointsRedeem] = useState(0);
+    const [deliveryId, setDeliveryId] = useState('');
+    const [km, setKm] = useState('');
+
+    const dealerTypes = ['dealer', 'secondary', 'dealer_secondary'];
+    const autoDeliveryAppliedRef = useRef(null);
+
+    const updateCartLocation = (nextId, resetCart = true, isManual = true) => {
+        const next = nextId === '' || nextId === null ? '' : Number(nextId);
+        const current = cartLocationId === '' || cartLocationId === null ? '' : Number(cartLocationId);
+        if (current === next) return;
+        if (resetCart) {
+            setCart({});
+            setLinePrice({});
+        }
+        if (isManual) {
+            autoDeliveryAppliedRef.current = null; // evitar que efectos auto sincronicen tras un cambio manual
+        }
+        setCartLocationId(next);
+    };
+
+    const findDealerLocationByUser = (userId) =>
+        saleLocations.find(
+            (l) =>
+                dealerTypes.includes(String(l.type)) &&
+                Number(l.user_id) === Number(userId)
+        );
+
+    const getDealerUserForLocation = (locId) => {
+        const loc = saleLocations.find((l) => Number(l.id) === Number(locId));
+        if (!loc) return null;
+        return dealerTypes.includes(String(loc.type)) && loc.user_id ? Number(loc.user_id) : null;
+    };
+
+    const dedupById = (arr) => {
+        if (!Array.isArray(arr)) return [];
+        const map = new Map();
+        arr.forEach((it) => {
+            if (!it || it.id == null) return;
+            map.set(it.id, it); // último gana (para tomar precios actualizados)
+        });
+        return Array.from(map.values());
+    };
+
     useEffect(() => {
-        setInventoryItems(initialItems);
+        setInventoryItems(dedupById(initialItems));
     }, [initialItems]);
 
     useEffect(() => {
@@ -264,9 +322,37 @@ export default function Index() {
         const ids = saleLocations.map((l) => Number(l.id));
         const currentId = Number(cartLocationId || 0);
         if (!currentId || !ids.includes(currentId)) {
-            setCartLocationId(ids[0]);
+            updateCartLocation(ids[0], false);
         }
     }, [isAdmin, saleLocations, cartLocationId]);
+
+    // Si la ubicación elegida es de tipo dealer y no hay delivery seleccionado, setea automáticamente ese dealer.
+    useEffect(() => {
+        const locDealerId = getDealerUserForLocation(cartLocationId);
+        if (
+            locDealerId &&
+            !deliveryId &&
+            autoDeliveryAppliedRef.current !== cartLocationId
+        ) {
+            autoDeliveryAppliedRef.current = cartLocationId;
+            setDeliveryId(String(locDealerId));
+        }
+        if (!locDealerId) {
+            autoDeliveryAppliedRef.current = null;
+        }
+    }, [cartLocationId, deliveryId, saleLocations]);
+
+    // Al elegir un dealer en Delivery, sincronizar la ubicación de stock con la de ese dealer.
+    useEffect(() => {
+        if (!isAdmin) return;
+        if (!deliveryId) return;
+        // Sólo sincroniza automáticamente si aún no hay ubicación elegida (evita sobrescribir selección manual)
+        if (cartLocationId) return;
+        const dealerLoc = findDealerLocationByUser(deliveryId);
+        if (dealerLoc && Number(dealerLoc.id) !== Number(cartLocationId)) {
+            updateCartLocation(dealerLoc.id, true, false);
+        }
+    }, [deliveryId, isAdmin, saleLocations, cartLocationId]);
 
     useEffect(() => {
         if (!isAdmin) return;
@@ -287,7 +373,7 @@ export default function Index() {
                 );
                 if (!res.ok) throw new Error('Fetch failed');
                 const data = await res.json();
-                if (!abort) setInventoryItems(Array.isArray(data?.items) ? data.items : []);
+                if (!abort) setInventoryItems(dedupById(data?.items));
             } catch (e) {
                 if (!abort) {
                     setInventoryItems([]);
@@ -398,11 +484,26 @@ export default function Index() {
         const n = normalizeDecimal(max);
         return Number.isFinite(n) ? n : 0;
     };
+
+    const autoSetLinePrice = (id, qty) => {
+        setLinePrice((prev) => {
+            const current = prev[id];
+            if (current !== undefined && current !== '') return prev; // ya hay override/manual
+            const prod = inventoryItems.find((p) => p.id === Number(id));
+            if (!prod) return prev;
+            const total = roundMoney(Number(prod.sale_price ?? 0) * qty);
+            if (!(total > 0)) return prev;
+            return { ...prev, [id]: total };
+        });
+    };
+
     const setQty = (id, raw) => {
         if (raw === '') return setCart(p => ({ ...p, [id]: '' }));
         const cleaned = String(raw).replace(',', '.');
         if (!/^\d*([.]\d*)?$/.test(cleaned)) return;
         setCart(p => ({ ...p, [id]: cleaned }));
+        const qty = normalizeDecimal(cleaned);
+        if (qty > 0) autoSetLinePrice(id, qty);
     };
     const commitQty = (id, max) => {
         const cap = maxQty(max);
@@ -412,7 +513,9 @@ export default function Index() {
             let n = normalizeDecimal(raw); if (n === '') n = 0;
             n = clampFloat(snapToStep(n), 0, cap);
             if (n > 0 && n < STEP) n = STEP;
-            return { ...prev, [id]: n };
+            const next = { ...prev, [id]: n };
+            if (n > 0) autoSetLinePrice(id, n);
+            return next;
         });
     };
     function addQty(id, delta, max) {
@@ -420,7 +523,9 @@ export default function Index() {
         setCart(prev => {
             const cur = normalizeDecimal(prev[id] ?? 0) || 0;
             const next = cur === 0 && delta > 0 ? STEP : cur + (delta * STEP);
-            return { ...prev, [id]: clampFloat(snapToStep(next), 0, cap) };
+            const clamped = clampFloat(snapToStep(next), 0, cap);
+            if (clamped > 0) autoSetLinePrice(id, clamped);
+            return { ...prev, [id]: clamped };
         });
     }
 
@@ -467,27 +572,13 @@ export default function Index() {
             const lineTotal =
                 override !== undefined && override !== '' ? Number(override)
                     : Number(prod.sale_price ?? 0) * qty;
+            // Actualiza auto (solo cálculo en memoria) para mantener consistencia visual si no hay override
+            if ((override === undefined || override === '') && lineTotal > 0) {
+                autoSetLinePrice(id, qty);
+            }
             return acc + (Number.isFinite(lineTotal) ? lineTotal : 0);
         }, 0);
     }, [cart, linePrice, inventoryItems]);
-
-    // ===== Pago / deuda =====
-    const [openPay, setOpenPay] = useState(false);
-    const [selected, setSelected] = useState(null);
-    const [pd, setPd] = useState({ paid: 0, pay: '', name: '', phone: '' });
-    const [newDue, setNewDue] = useState(0);
-
-    const [methodId, setMethodId] = useState(paymentMethods[0]?.id ?? null);
-    const [reference, setReference] = useState('');
-    const [customerId, setCustomerId] = useState('');
-    const [customer, setCustomer] = useState(null);
-    const [lookupLoading, setLookupLoading] = useState(false);
-    const [openCustomerModal, setOpenCustomerModal] = useState(false);
-    const [newCustomerName, setNewCustomerName] = useState('');
-    const [newCustomerPhone, setNewCustomerPhone] = useState('');
-    const [pointsRedeem, setPointsRedeem] = useState(0);
-    const [deliveryId, setDeliveryId] = useState('');
-    const [km, setKm] = useState('');
 
     const pointValue = Number(pointsSettings?.value_per_point ?? 0);
 
@@ -738,8 +829,11 @@ export default function Index() {
             }
             const hasDelivery = String(deliveryId || '') !== '';
             const kmVal = parseFloat(km || '0');
-            if (hasDelivery && !(kmVal > 0)) {
-                return toast.error('Ingresa los KM (> 0)');
+            if (hasDelivery && kmVal < 0) {
+                return toast.error('Los KM no pueden ser negativos');
+            }
+            if (!hasDelivery && !cartLocationId) {
+                return toast.error('Selecciona una ubicación de stock');
             }
             if (
                 amount < totalAfterDiscount &&
@@ -769,11 +863,12 @@ export default function Index() {
                     Number(maxPointsRedeem || 0)
                 ),
             };
+            if (cartLocationId) {
+                payload.location_id = Number(cartLocationId);
+            }
             if (hasDelivery) {
                 payload.delivery_id = Number(deliveryId);
                 payload.km = kmVal;
-            } else if (cartLocationId) {
-                payload.location_id = Number(cartLocationId);
             }
 
                 router.post(route('sales.store'), payload, {
@@ -1225,8 +1320,8 @@ export default function Index() {
                     setOpenCart(false);
                     setCartProcessing(false);
                 }}
-                className="relative z-50"
-            >
+        className="relative z-50"
+    >
                 <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
                 <div className="fixed inset-0 flex items-center justify-center p-0 md:p-4">
                     <Dialog.Panel
@@ -1262,10 +1357,8 @@ export default function Index() {
                                             className="border rounded-md px-3 py-2 text-sm w-full"
                                             value={cartLocationId ?? ''}
                                             onChange={(e) => {
-                                                const next = e.target.value ? Number(e.target.value) : '';
-                                                setCartLocationId(next);
-                                                setCart({});
-                                                setLinePrice({});
+                                            const next = e.target.value ? Number(e.target.value) : '';
+                                            updateCartLocation(next, true, true);
                                             }}
                                         >
                                             <option value="">— Selecciona —</option>
@@ -1503,7 +1596,6 @@ export default function Index() {
                                             onChange={(e) =>
                                                 setDeliveryId(e.target.value)
                                             }
-                                            disabled={isDealer}
                                         >
                                             <option value="">
                                                 — Sin dealer —

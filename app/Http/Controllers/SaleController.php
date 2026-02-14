@@ -105,7 +105,8 @@ class SaleController extends Controller
             );
 
         // ====== filtro dealer / domiciliario ======
-        if (!empty($dealerId)) {
+        // Solo super-admin puede filtrar por delivery_id; para admin/dealer se ignora para no romper el aislamiento.
+        if (!empty($dealerId) && $isSuperAdmin) {
             $salesQuery->where('delivery_id', $dealerId);
         }
 
@@ -117,7 +118,23 @@ class SaleController extends Controller
             });
         }
         if ($isAdmin && !$isSuperAdmin) {
-            $salesQuery->whereIn('delivery_id', $dealerIds);
+            $allowedUserIds = $dealerIds->push($user->id)->unique()->values();
+
+            // Si se envía dealer_id y no pertenece, devolver vacío.
+            if (!empty($dealerId) && !$allowedUserIds->contains((int) $dealerId)) {
+                $salesQuery->whereRaw('1=0');
+            } else {
+                $salesQuery->where(function ($q) use ($allowedUserIds, $user) {
+                    // Ventas creadas por el admin o sus dealers
+                    $q->whereIn('user_id', $allowedUserIds)
+                        // Ventas entregadas por el admin o sus dealers
+                        ->orWhereIn('delivery_id', $allowedUserIds)
+                        // Ventas sin delivery, pero creadas por el admin
+                        ->orWhere(function ($qq) use ($user) {
+                            $qq->whereNull('delivery_id')->where('user_id', $user->id);
+                        });
+                });
+            }
         }
 
         // ====== filtro estado ======
@@ -226,17 +243,28 @@ class SaleController extends Controller
 
         // ====== Ítems disponibles en esa ubicación (para el modal carrito) ======
         if ($myLocationId > 0) {
+            $codeExpr = "UPPER(TRIM(inventories.name))";
+
+            $createdByFilter = null;
+            if ($isAdmin && !$isSuperAdmin) {
+                $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+                $createdByFilter = $dealerIds->push($user->id)->unique()->values();
+            }
+
             $items = Inventory::query()
                 ->leftJoin('inventory_stocks as s', function ($j) use ($myLocationId) {
                     $j->on('s.inventory_id', '=', 'inventories.id')
                         ->where('s.location_id', $myLocationId);
                 })
-                ->orderBy('inventories.name')
+                ->when($createdByFilter, fn($q) => $q->whereIn('inventories.created_by', $createdByFilter))
+                ->groupBy(DB::raw($codeExpr))
+                ->orderBy(DB::raw($codeExpr))
                 ->get([
-                    'inventories.id',
-                    'inventories.name',
-                    'inventories.sale_price',
-                    DB::raw('(COALESCE(s.on_hand,0) - COALESCE(s.reserved,0)) as quantity'),
+                    DB::raw('MAX(inventories.id) as id'),
+                    DB::raw("$codeExpr as code"),
+                    DB::raw('MAX(inventories.name) as name'),
+                    DB::raw('MAX(inventories.sale_price) as sale_price'),
+                    DB::raw('SUM(COALESCE(s.on_hand,0) - COALESCE(s.reserved,0)) as quantity'),
                 ]);
         } else {
             $items = collect();
@@ -248,9 +276,23 @@ class SaleController extends Controller
             ->get();
 
         // ====== Dealers (para modal Y para filtro dealer) ======
-        $deliverers = User::role('dealer')
-            ->whereIn('id', Location::where('type', 'dealer')->whereNotNull('user_id')->pluck('user_id'))
-            ->when($isAdmin && !$isSuperAdmin, fn($q) => $q->where('created_by', $user->id))
+        $deliverers = User::role('delivery')
+            ->when($isAdmin && !$isSuperAdmin, function ($q) use ($user) {
+                $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+                $q->where('created_by', $user->id)->orWhereIn('id', $dealerIds);
+            })
+            ->when($roles->contains('dealer'), function ($q) use ($user) {
+                $parentAdminId = $user->created_by ?: null;
+                if ($parentAdminId) {
+                    $dealerIds = User::role('dealer')->where('created_by', $parentAdminId)->pluck('id');
+                    $q->where(function ($qq) use ($parentAdminId, $dealerIds) {
+                        $qq->where('created_by', $parentAdminId)
+                            ->orWhereIn('id', $dealerIds);
+                    });
+                } else {
+                    $q->where('id', $user->id);
+                }
+            })
             ->select('id', 'name')
             ->orderBy('name')
             ->get();
@@ -315,6 +357,7 @@ class SaleController extends Controller
             'customerUser:id,name,phone',
             'customerUser.customerPoints:user_id,points_balance',
             'delivery:id,name',
+            'location:id,name,type',
             'items.inventory:id,name,unit',
             'payments.method:id,code,name',
         ]);
@@ -355,15 +398,8 @@ class SaleController extends Controller
 
                 // === Resolver location_id (DENTRO del closure) ===
                 if ($hasDealer) {
-                    $locationId = Location::where('type', 'dealer')
-                        ->where('user_id', (int) $data['delivery_id'])
-                        ->value('id');
-
-                    if (!$locationId) {
-                        throw ValidationException::withMessages([
-                            'delivery_id' => 'El dealer seleccionado no tiene una ubicación tipo dealer asignada.',
-                        ]);
-                    }
+                    // Ya no obligamos a que el delivery tenga location propia; usamos la location indicada o la del actor.
+                    $locationId = isset($data['location_id']) ? (int) $data['location_id'] : null;
                 } else {
                     $actorRoles = method_exists($actor, 'getRoleNames') ? $actor->getRoleNames() : collect();
                     if ($actorRoles->contains('dealer')) {
@@ -1337,17 +1373,28 @@ class SaleController extends Controller
             }
         }
 
+        $codeExpr = "UPPER(TRIM(inventories.name))";
+
+        $createdByFilter = null;
+        if ($isAdmin && !$isSuperAdmin) {
+            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+            $createdByFilter = $dealerIds->push($user->id)->unique()->values();
+        }
+
         $items = Inventory::query()
             ->leftJoin('inventory_stocks as s', function ($j) use ($locationId) {
                 $j->on('s.inventory_id', '=', 'inventories.id')
                     ->where('s.location_id', $locationId);
             })
-            ->orderBy('inventories.name')
+            ->when($createdByFilter, fn($q) => $q->whereIn('inventories.created_by', $createdByFilter))
+            ->groupBy(DB::raw($codeExpr))
+            ->orderBy(DB::raw($codeExpr))
             ->get([
-                'inventories.id',
-                'inventories.name',
-                'inventories.sale_price',
-                DB::raw('(COALESCE(s.on_hand,0) - COALESCE(s.reserved,0)) as quantity'),
+                DB::raw('MAX(inventories.id) as id'),
+                DB::raw("$codeExpr as code"),
+                DB::raw('MAX(inventories.name) as name'),
+                DB::raw('MAX(inventories.sale_price) as sale_price'),
+                DB::raw('SUM(COALESCE(s.on_hand,0) - COALESCE(s.reserved,0)) as quantity'),
             ]);
 
         return response()->json(['items' => $items]);

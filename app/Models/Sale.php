@@ -32,6 +32,7 @@ class Sale extends Model
         'km',
         'delivery_pay',
         'delivery_paid_at',
+        'location_id',
     ];
 
     protected $casts = [
@@ -70,6 +71,11 @@ class Sale extends Model
     {
         return $this->belongsTo(User::class, 'delivery_id');
 
+    }
+
+    public function location()
+    {
+        return $this->belongsTo(Location::class);
     }
 
     public function recalcTotals(): void

@@ -122,6 +122,13 @@ export default function Show({ sale: saleProp }) {
                     </p>
 
                     <p>
+                        <span className="text-gray-600">Stock:</span>{' '}
+                        {sale.location
+                            ? `${sale.location.name} (${String(sale.location.type || '').toUpperCase()})`
+                            : '—'}
+                    </p>
+
+                    <p>
                         <span className="text-gray-600">Fecha:</span>{' '}
                         {sale.created_at
                             ? new Date(sale.created_at).toLocaleString('es-CO')

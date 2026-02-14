@@ -17,5 +17,6 @@ class DatabaseSeeder extends Seeder
         $this->call(SuperAdminRoleSeeder::class);
         $this->call(UserSeeder::class);
         $this->call(PaymentMethodSeeder::class);
+        $this->call(DealerToDeliverySplitSeeder::class);
     }
 }
