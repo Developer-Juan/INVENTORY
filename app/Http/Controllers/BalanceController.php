@@ -20,7 +20,7 @@ class BalanceController extends Controller
         $isSuperAdmin = $roles->contains('super-admin');
         $dealerUserIds = collect();
         if ($isAdmin && !$isSuperAdmin) {
-            $dealerUserIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+        $dealerUserIds = User::dealerIdsForAdmin($user);
         }
 
         $dealerId = $request->query('dealer_id');   // location_id del dealer
@@ -367,7 +367,7 @@ class BalanceController extends Controller
         $isAdmin = $roles->contains('admin');
         $isSuperAdmin = $roles->contains('super-admin');
         if ($isAdmin && !$isSuperAdmin) {
-            $dealerUserIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+        $dealerUserIds = User::dealerIdsForAdmin($user);
             $allowedLocation = Location::whereIn('type', ['dealer', 'secondary', 'dealer_secondary'])
                 ->where('id', $dealerLocationId)
                 ->whereIn('user_id', $dealerUserIds)

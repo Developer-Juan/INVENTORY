@@ -23,7 +23,7 @@ class ServiceQualityController extends Controller
         $isSuperAdmin = $roles->contains('super-admin');
         $dealerIds = collect();
         if ($isAdmin && !$isSuperAdmin) {
-            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+            $dealerIds = User::dealerIdsForAdmin($user);
         }
 
         $dealerFilter = $request->query('dealer_id');
@@ -75,7 +75,7 @@ class ServiceQualityController extends Controller
         $rankingByProduct = [];
 
         if ($isAdmin) {
-            $dealers = User::role('dealer')
+            $dealers = User::dealerLikeQuery()
                 ->when(!$isSuperAdmin, fn($q) => $q->where('created_by', $user->id))
                 ->select('id', 'name')
                 ->orderBy('name')

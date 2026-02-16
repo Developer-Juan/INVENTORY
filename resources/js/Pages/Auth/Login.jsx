@@ -5,10 +5,11 @@ import InputError from '@/Components/InputError';
 import InputLabel from '@/Components/InputLabel';
 import PrimaryButton from '@/Components/PrimaryButton';
 import TextInput from '@/Components/TextInput';
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Head, Link, router, useForm } from '@inertiajs/react';
+import axios from 'axios';
 
 export default function Login({ status, canResetPassword }) {
-    const { data, setData, post, processing, errors, reset } = useForm({
+    const { data, setData, processing, errors, reset, setError, clearErrors } = useForm({
         email: '',
         password: '',
         remember: '',
@@ -24,10 +25,29 @@ export default function Login({ status, canResetPassword }) {
         setData(event.target.name, event.target.type === 'checkbox' ? event.target.checked : event.target.value);
     };
 
-    const submit = (e) => {
+    const submit = async (e) => {
         e.preventDefault();
 
-        post(route('login'));
+        clearErrors();
+        try {
+            const response = await axios.post(route('login'), data);
+            const token = response?.data?.access_token;
+            if (token && window?.setAuthToken) {
+                window.setAuthToken(token);
+            }
+            router.visit(route('dashboard'));
+        } catch (error) {
+            const payload = error?.response?.data;
+            const fieldErrors = payload?.errors ?? {};
+            if (Object.keys(fieldErrors).length > 0) {
+                Object.entries(fieldErrors).forEach(([field, messages]) => {
+                    const message = Array.isArray(messages) ? messages[0] : messages;
+                    setError(field, message);
+                });
+                return;
+            }
+            setError('email', payload?.message ?? 'No se pudo iniciar sesion.');
+        }
     };
 
     return (

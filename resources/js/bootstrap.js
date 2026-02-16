@@ -11,6 +11,71 @@ import axios from 'axios';
 window.axios = axios;
 
 window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
+window.axios.defaults.withCredentials = true;
+
+const csrfToken = document.querySelector('meta[name="csrf-token"]');
+if (csrfToken) {
+    window.axios.defaults.headers.common['X-CSRF-TOKEN'] = csrfToken.content;
+}
+
+let inMemoryToken = null;
+
+const setAuthToken = (token) => {
+    if (!token) {
+        delete window.axios.defaults.headers.common.Authorization;
+        inMemoryToken = null;
+        return;
+    }
+
+    window.axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+    inMemoryToken = token;
+};
+
+window.setAuthToken = setAuthToken;
+window.clearAuthToken = () => setAuthToken(null);
+
+const refreshToken = () => {
+    if (refreshToken.promise) return refreshToken.promise;
+    const refreshUrl = (typeof window !== 'undefined' && window.route)
+        ? window.route('token.refresh')
+        : '/token/refresh';
+    refreshToken.promise = window.axios.post(refreshUrl)
+        .finally(() => {
+            refreshToken.promise = null;
+        });
+    return refreshToken.promise;
+};
+
+window.axios.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        const status = error?.response?.status;
+        const originalRequest = error?.config;
+        const isAuthRequest = originalRequest?.url?.includes('/token/refresh') || originalRequest?.url?.includes('/login');
+
+        if (status === 401 && originalRequest && !originalRequest._retry && !isAuthRequest) {
+            originalRequest._retry = true;
+            return refreshToken()
+                .then((response) => {
+                    const token = response?.data?.access_token;
+                    if (token) {
+                        setAuthToken(token);
+                        originalRequest.headers = originalRequest.headers || {};
+                        originalRequest.headers.Authorization = `Bearer ${token}`;
+                    }
+                    return window.axios(originalRequest);
+                })
+                .catch(() => {
+                    window.clearAuthToken?.();
+                    if (typeof window !== 'undefined' && window.location?.pathname !== '/login') {
+                        window.location.href = '/login';
+                    }
+                    return Promise.reject(error);
+                });
+        }
+        return Promise.reject(error);
+    }
+);
 
 /**
  * Echo exposes an expressive API for subscribing to channels and listening

@@ -53,6 +53,10 @@ class DashboardController extends Controller
         $dealerLocId = $isDealer
             ? Location::where('type', 'dealer')->where('user_id', $user->id)->value('id')
             : null;
+        $adminScopedUserIds = $isAdmin
+            ? User::where('created_by', $user->id)->pluck('id')
+            : collect();
+        $adminScopedUserIds = $adminScopedUserIds->push($user->id)->unique()->values();
 
         // ====== Rango de fechas (por defecto últimos 30 días) ======
         $fromStr = $request->query('from');
@@ -80,12 +84,10 @@ class DashboardController extends Controller
                     }
                 });
             })
-            ->when($isAdmin, function ($q) use ($user) {
-                $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
-                $userIds = $dealerIds->push($user->id)->unique()->values();
-                $q->where(function ($qq) use ($userIds) {
-                    $qq->whereIn('s.user_id', $userIds)
-                        ->orWhereIn('s.delivery_id', $userIds);
+            ->when($isAdmin, function ($q) use ($adminScopedUserIds) {
+                $q->where(function ($qq) use ($adminScopedUserIds) {
+                    $qq->whereIn('s.user_id', $adminScopedUserIds)
+                        ->orWhereIn('s.delivery_id', $adminScopedUserIds);
                 });
             })
             ->select('s.id');
@@ -112,12 +114,10 @@ class DashboardController extends Controller
                     }
                 });
             })
-            ->when($isAdmin, function ($q) use ($user) {
-                $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
-                $userIds = $dealerIds->push($user->id)->unique()->values();
-                $q->where(function ($qq) use ($userIds) {
-                    $qq->whereIn('s.user_id', $userIds)
-                        ->orWhereIn('s.delivery_id', $userIds);
+            ->when($isAdmin, function ($q) use ($adminScopedUserIds) {
+                $q->where(function ($qq) use ($adminScopedUserIds) {
+                    $qq->whereIn('s.user_id', $adminScopedUserIds)
+                        ->orWhereIn('s.delivery_id', $adminScopedUserIds);
                 });
             })
             ->sum('p.amount') ?? 0);
@@ -136,12 +136,10 @@ class DashboardController extends Controller
                     }
                 });
             })
-            ->when($isAdmin, function ($q) use ($user) {
-                $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
-                $userIds = $dealerIds->push($user->id)->unique()->values();
-                $q->where(function ($qq) use ($userIds) {
-                    $qq->whereIn('s.user_id', $userIds)
-                        ->orWhereIn('s.delivery_id', $userIds);
+            ->when($isAdmin, function ($q) use ($adminScopedUserIds) {
+                $q->where(function ($qq) use ($adminScopedUserIds) {
+                    $qq->whereIn('s.user_id', $adminScopedUserIds)
+                        ->orWhereIn('s.delivery_id', $adminScopedUserIds);
                 });
             })
             ->selectRaw('DATE(s.created_at) as d,
@@ -164,12 +162,10 @@ class DashboardController extends Controller
                     }
                 });
             })
-            ->when($isAdmin, function ($q) use ($user) {
-                $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
-                $userIds = $dealerIds->push($user->id)->unique()->values();
-                $q->where(function ($qq) use ($userIds) {
-                    $qq->whereIn('s.user_id', $userIds)
-                        ->orWhereIn('s.delivery_id', $userIds);
+            ->when($isAdmin, function ($q) use ($adminScopedUserIds) {
+                $q->where(function ($qq) use ($adminScopedUserIds) {
+                    $qq->whereIn('s.user_id', $adminScopedUserIds)
+                        ->orWhereIn('s.delivery_id', $adminScopedUserIds);
                 });
             })
             ->selectRaw('DATE(p.paid_at) as d, COALESCE(SUM(p.amount),0) as paid_total')
@@ -210,12 +206,10 @@ class DashboardController extends Controller
                     }
                 });
             })
-            ->when($isAdmin, function ($q) use ($user) {
-                $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
-                $userIds = $dealerIds->push($user->id)->unique()->values();
-                $q->where(function ($qq) use ($userIds) {
-                    $qq->whereIn('s.user_id', $userIds)
-                        ->orWhereIn('s.delivery_id', $userIds);
+            ->when($isAdmin, function ($q) use ($adminScopedUserIds) {
+                $q->where(function ($qq) use ($adminScopedUserIds) {
+                    $qq->whereIn('s.user_id', $adminScopedUserIds)
+                        ->orWhereIn('s.delivery_id', $adminScopedUserIds);
                 });
             })
             ->groupBy('si.inventory_id', 'i.name')
@@ -249,12 +243,10 @@ class DashboardController extends Controller
                         }
                     });
                 })
-                ->when($isAdmin, function ($q) use ($user) {
-                    $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
-                    $userIds = $dealerIds->push($user->id)->unique()->values();
-                    $q->where(function ($qq) use ($userIds) {
-                        $qq->whereIn('s.user_id', $userIds)
-                            ->orWhereIn('s.delivery_id', $userIds);
+                ->when($isAdmin, function ($q) use ($adminScopedUserIds) {
+                    $q->where(function ($qq) use ($adminScopedUserIds) {
+                        $qq->whereIn('s.user_id', $adminScopedUserIds)
+                            ->orWhereIn('s.delivery_id', $adminScopedUserIds);
                     });
                 })
                 ->where('im.reason', 'SALE')
@@ -284,12 +276,10 @@ class DashboardController extends Controller
                         }
                     });
                 })
-                ->when($isAdmin, function ($q) use ($user) {
-                    $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
-                    $userIds = $dealerIds->push($user->id)->unique()->values();
-                    $q->where(function ($qq) use ($userIds) {
-                        $qq->whereIn('s.user_id', $userIds)
-                            ->orWhereIn('s.delivery_id', $userIds);
+                ->when($isAdmin, function ($q) use ($adminScopedUserIds) {
+                    $q->where(function ($qq) use ($adminScopedUserIds) {
+                        $qq->whereIn('s.user_id', $adminScopedUserIds)
+                            ->orWhereIn('s.delivery_id', $adminScopedUserIds);
                     });
                 })
                 ->groupBy('loc_id', 'name')
@@ -320,12 +310,10 @@ class DashboardController extends Controller
                     }
                 });
             })
-            ->when($isAdmin, function ($q) use ($user) {
-                $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
-                $userIds = $dealerIds->push($user->id)->unique()->values();
-                $q->where(function ($qq) use ($userIds) {
-                    $qq->whereIn('s.user_id', $userIds)
-                        ->orWhereIn('s.delivery_id', $userIds);
+            ->when($isAdmin, function ($q) use ($adminScopedUserIds) {
+                $q->where(function ($qq) use ($adminScopedUserIds) {
+                    $qq->whereIn('s.user_id', $adminScopedUserIds)
+                        ->orWhereIn('s.delivery_id', $adminScopedUserIds);
                 });
             })
             ->groupBy('pm.id', 'pm.name')

@@ -20,7 +20,7 @@ class ReportsController extends Controller
         $isAdmin = $roles->contains('admin');
         $isSuperAdmin = $roles->contains('super-admin');
 
-        $deliverers = User::role('dealer')
+        $deliverers = User::dealerLikeQuery()
             ->whereIn('id', \App\Models\Location::where('type', 'dealer')->whereNotNull('user_id')->pluck('user_id'))
             ->when($isAdmin && !$isSuperAdmin, fn($q) => $q->where('created_by', $user->id))
             ->select('id', 'name')
@@ -158,8 +158,7 @@ class ReportsController extends Controller
             });
         }
         if ($user && $roles->contains('admin') && !$roles->contains('super-admin')) {
-            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
-            $userIds = $dealerIds->push($user->id)->unique()->values();
+            $userIds = User::adminScopedUserIds($user);
             $salesQuery->where(function ($q) use ($userIds) {
                 $q->whereIn('user_id', $userIds)
                     ->orWhereIn('delivery_id', $userIds);

@@ -5,6 +5,7 @@ import NavLink from '@/Components/NavLink';
 import ResponsiveNavLink from '@/Components/ResponsiveNavLink';
 import { RiCustomerService2Line, RiTelegramLine } from 'react-icons/ri';
 import { Link, router, usePage } from '@inertiajs/react';
+import axios from 'axios';
 
 export default function Authenticated({ auth, header, children }) {
     const [showingNavigationDropdown, setShowingNavigationDropdown] = useState(false);
@@ -86,6 +87,19 @@ export default function Authenticated({ auth, header, children }) {
                 setSupportUnreadLive(false);
             },
         });
+    };
+
+    const handleLogout = async (e) => {
+        if (e) e.preventDefault();
+        try {
+            await axios.post(route('logout'));
+        } catch {
+            // ignore logout errors
+        }
+        if (window?.clearAuthToken) {
+            window.clearAuthToken();
+        }
+        router.visit(route('login'));
     };
 
     useEffect(() => {
@@ -474,9 +488,13 @@ export default function Authenticated({ auth, header, children }) {
                                     {isDealer && (
                                         <Dropdown.Link href={route('support.index')}>Mis tickets</Dropdown.Link>
                                     )}
-                                    <Dropdown.Link href={route('logout')} method="post" as="button">
+                                    <button
+                                        type="button"
+                                        onClick={handleLogout}
+                                        className="block w-full px-4 py-2 text-left text-sm leading-5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus:bg-gray-100 dark:focus:bg-gray-800 transition duration-150 ease-in-out"
+                                    >
                                         Cerrar sesion
-                                    </Dropdown.Link>
+                                    </button>
                                 </Dropdown.Content>
                             </Dropdown>
                         </div>
@@ -750,7 +768,7 @@ export default function Authenticated({ auth, header, children }) {
                             {isDealer && (
                                 <ResponsiveNavLink href={route('support.index')}>Mis tickets</ResponsiveNavLink>
                             )}
-                            <ResponsiveNavLink method="post" href={route('logout')} as="button">
+                            <ResponsiveNavLink href="#" as="button" type="button" onClick={handleLogout}>
                                 Cerrar sesion
                             </ResponsiveNavLink>
                         </div>

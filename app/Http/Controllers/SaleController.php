@@ -61,7 +61,7 @@ class SaleController extends Controller
         $isSuperAdmin = $roles->contains('super-admin');
         $dealerIds = collect();
         if ($isAdmin && !$isSuperAdmin) {
-            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+            $dealerIds = User::dealerIdsForAdmin($user);
         }
 
         // ====== leer filtros entrantes ======
@@ -224,8 +224,7 @@ class SaleController extends Controller
         $isSuperAdmin = $roles->contains('super-admin');
         $allowedLocationIds = collect();
         if ($isAdmin && !$isSuperAdmin) {
-            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
-            $userIds = $dealerIds->push($user->id)->unique()->values();
+            $userIds = User::adminScopedUserIds($user);
             $allowedLocationIds = Location::query()
                 ->whereIn('user_id', $userIds)
                 ->orWhereIn('type', ['principal', 'main'])
@@ -247,8 +246,7 @@ class SaleController extends Controller
 
             $createdByFilter = null;
             if ($isAdmin && !$isSuperAdmin) {
-                $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
-                $createdByFilter = $dealerIds->push($user->id)->unique()->values();
+                $createdByFilter = User::adminScopedUserIds($user);
             }
 
             $items = Inventory::query()
@@ -278,16 +276,15 @@ class SaleController extends Controller
         // ====== Dealers (para modal Y para filtro dealer) ======
         $deliverers = User::role('delivery')
             ->when($isAdmin && !$isSuperAdmin, function ($q) use ($user) {
-                $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+                $dealerIds = User::dealerIdsForAdmin($user);
                 $q->where('created_by', $user->id)->orWhereIn('id', $dealerIds);
             })
             ->when($roles->contains('dealer'), function ($q) use ($user) {
                 $parentAdminId = $user->created_by ?: null;
                 if ($parentAdminId) {
-                    $dealerIds = User::role('dealer')->where('created_by', $parentAdminId)->pluck('id');
-                    $q->where(function ($qq) use ($parentAdminId, $dealerIds) {
-                        $qq->where('created_by', $parentAdminId)
-                            ->orWhereIn('id', $dealerIds);
+                    $userIds = User::adminScopedUserIdsByAdminId($parentAdminId);
+                    $q->where(function ($qq) use ($userIds) {
+                        $qq->whereIn('id', $userIds);
                     });
                 } else {
                     $q->where('id', $user->id);
@@ -419,8 +416,7 @@ class SaleController extends Controller
                             $locationId = Location::where('user_id', $actor->id)->value('id');
                         }
                         if ($locationId && !$isSuperAdmin) {
-                            $dealerIds = User::role('dealer')->where('created_by', $actor->id)->pluck('id');
-                            $userIds = $dealerIds->push($actor->id)->unique()->values();
+                            $userIds = User::adminScopedUserIds($actor);
                             $allowedLocationIds = Location::query()
                                 ->whereIn('user_id', $userIds)
                                 ->orWhereIn('type', ['principal', 'main'])
@@ -1357,8 +1353,7 @@ class SaleController extends Controller
         $isAdmin = $roles->contains('admin');
         $isSuperAdmin = $roles->contains('super-admin');
         if ($isAdmin && !$isSuperAdmin) {
-            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
-            $userIds = $dealerIds->push($user->id)->unique()->values();
+            $userIds = User::adminScopedUserIds($user);
             $allowedLocationIds = Location::query()
                 ->whereIn('user_id', $userIds)
                 ->orWhereIn('type', ['principal', 'main'])
@@ -1377,8 +1372,7 @@ class SaleController extends Controller
 
         $createdByFilter = null;
         if ($isAdmin && !$isSuperAdmin) {
-            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
-            $createdByFilter = $dealerIds->push($user->id)->unique()->values();
+            $createdByFilter = User::adminScopedUserIds($user);
         }
 
         $items = Inventory::query()

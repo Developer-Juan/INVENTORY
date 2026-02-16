@@ -21,7 +21,7 @@ class CashController extends Controller
         $isSuperAdmin = $roles->contains('super-admin');
         $allowedUserIds = collect();
         if ($roles->contains('admin') && !$isSuperAdmin) {
-            $dealerIds = \App\Models\User::role('dealer')->where('created_by', $user->id)->pluck('id');
+            $dealerIds = \App\Models\User::dealerIdsForAdmin($user);
             $allowedUserIds = $dealerIds->push($user->id)->unique()->values();
         }
 
@@ -75,7 +75,7 @@ class CashController extends Controller
         $isSuperAdmin = $roles->contains('super-admin');
         $allowedLocationIds = collect();
         if ($roles->contains('admin') && !$isSuperAdmin) {
-            $dealerIds = \App\Models\User::role('dealer')->where('created_by', $actor->id)->pluck('id');
+            $dealerIds = \App\Models\User::dealerIdsForAdmin($actor);
             $allowedUserIds = $dealerIds->push($actor->id)->unique()->values();
             $allowedLocationIds = Location::whereIn('user_id', $allowedUserIds)->pluck('id');
         }
@@ -191,7 +191,7 @@ class CashController extends Controller
         $isSuperAdmin = $roles->contains('super-admin');
         $allowedLocationIds = collect();
         if ($roles->contains('admin') && !$isSuperAdmin) {
-            $dealerIds = \App\Models\User::role('dealer')->where('created_by', $actor->id)->pluck('id');
+            $dealerIds = \App\Models\User::dealerIdsForAdmin($actor);
             $allowedUserIds = $dealerIds->push($actor->id)->unique()->values();
             $allowedLocationIds = Location::whereIn('user_id', $allowedUserIds)->pluck('id');
         }

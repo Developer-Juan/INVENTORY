@@ -8,8 +8,12 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
+use Tymon\JWTAuth\Contracts\JWTSubject;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\Exceptions\RoleDoesNotExist;
+use Illuminate\Support\Collection;
 
-class User extends Authenticatable
+class User extends Authenticatable implements JWTSubject
 {
     use HasApiTokens, HasFactory, Notifiable, HasRoles;
 
@@ -103,5 +107,83 @@ class User extends Authenticatable
             self::STATUS_ACTIVE_DEMO,
             self::STATUS_ACTIVE_WORKING,
         ], true);
+    }
+
+    public function getJWTIdentifier()
+    {
+        return $this->getKey();
+    }
+
+    public function getJWTCustomClaims(): array
+    {
+        return [];
+    }
+
+    public static function dealerRoleExists(): bool
+    {
+        return !empty(self::dealerRoleGuard());
+    }
+
+    public static function dealerRoleGuard(): ?string
+    {
+        return Role::where('name', 'dealer')->value('guard_name');
+    }
+
+    public static function dealerLikeQuery()
+    {
+        $guard = self::dealerRoleGuard();
+        if ($guard) {
+            try {
+                return self::role('dealer', $guard);
+            } catch (RoleDoesNotExist $e) {
+                // Fallback below if cache/guard mismatch throws
+            }
+        }
+
+        $dealerLocationUserIds = Location::where('type', 'dealer')
+            ->whereNotNull('user_id')
+            ->pluck('user_id');
+
+        return self::query()->whereIn('id', $dealerLocationUserIds);
+    }
+
+    public static function dealerIdsForAdmin(self $admin): Collection
+    {
+        $guard = self::dealerRoleGuard();
+        if ($guard) {
+            try {
+                return self::role('dealer', $guard)
+                    ->where('created_by', $admin->id)
+                    ->pluck('id');
+            } catch (RoleDoesNotExist $e) {
+                // Fallback below if cache/guard mismatch throws
+            }
+        }
+
+        return self::query()
+            ->where('created_by', $admin->id)
+            ->pluck('id');
+    }
+
+    public static function adminScopedUserIds(self $admin): Collection
+    {
+        return self::dealerIdsForAdmin($admin)
+            ->push($admin->id)
+            ->unique()
+            ->values();
+    }
+
+    public static function adminScopedUserIdsByAdminId(?int $adminId): Collection
+    {
+        if (!$adminId) {
+            return collect();
+        }
+
+        $admin = self::find($adminId);
+        if (!$admin) {
+            return collect([$adminId]);
+        }
+
+        return self::adminScopedUserIds($admin);
     }
 }

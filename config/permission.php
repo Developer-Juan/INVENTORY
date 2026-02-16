@@ -2,6 +2,12 @@
 
 return [
 
+    /*
+     * The default guard to use for roles/permissions.
+     * Keep this in sync with your auth guard (JWT in this app).
+     */
+    'default_guard_name' => env('PERMISSION_GUARD', 'jwt'),
+
     'models' => [
 
         /*

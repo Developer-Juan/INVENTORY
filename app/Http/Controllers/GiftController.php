@@ -40,7 +40,7 @@ class GiftController extends Controller
         $isSuperAdmin = $roles->contains('super-admin');
         $dealerIds = collect();
         if ($isAdmin && !$isSuperAdmin) {
-            $dealerIds = User::role('dealer')->where('created_by', $user->id)->pluck('id');
+            $dealerIds = User::dealerIdsForAdmin($user);
         }
 
         $principalId = Location::whereIn('type', ['principal', 'main'])->value('id');
@@ -133,7 +133,7 @@ class GiftController extends Controller
         $isSuperAdmin = $roles->contains('super-admin');
         $dealerIds = collect();
         if ($isAdmin && !$isSuperAdmin) {
-            $dealerIds = User::role('dealer')->where('created_by', $actor->id)->pluck('id');
+            $dealerIds = User::dealerIdsForAdmin($actor);
         }
 
         return DB::transaction(function () use ($data, $actor) {

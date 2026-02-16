@@ -1,9 +1,23 @@
 import GuestLayout from '@/Layouts/GuestLayout';
 import PrimaryButton from '@/Components/PrimaryButton';
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Head, useForm, router } from '@inertiajs/react';
+import axios from 'axios';
 
 export default function VerifyEmail({ status }) {
     const { post, processing } = useForm({});
+
+    const handleLogout = async (e) => {
+        if (e) e.preventDefault();
+        try {
+            await axios.post(route('logout'));
+        } catch {
+            // ignore logout errors
+        }
+        if (window?.clearAuthToken) {
+            window.clearAuthToken();
+        }
+        router.visit(route('login'));
+    };
 
     const submit = (e) => {
         e.preventDefault();
@@ -30,14 +44,13 @@ export default function VerifyEmail({ status }) {
                 <div className="mt-4 flex items-center justify-between">
                     <PrimaryButton disabled={processing}>Resend Verification Email</PrimaryButton>
 
-                    <Link
-                        href={route('logout')}
-                        method="post"
-                        as="button"
+                    <button
+                        type="button"
+                        onClick={handleLogout}
                         className="underline text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-800"
                     >
                         Log Out
-                    </Link>
+                    </button>
                 </div>
             </form>
         </GuestLayout>

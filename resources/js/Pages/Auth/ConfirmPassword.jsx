@@ -4,10 +4,11 @@ import InputError from '@/Components/InputError';
 import InputLabel from '@/Components/InputLabel';
 import PrimaryButton from '@/Components/PrimaryButton';
 import TextInput from '@/Components/TextInput';
-import { Head, useForm } from '@inertiajs/react';
+import { Head, router, useForm } from '@inertiajs/react';
+import axios from 'axios';
 
 export default function ConfirmPassword() {
-    const { data, setData, post, processing, errors, reset } = useForm({
+    const { data, setData, processing, errors, reset, setError, clearErrors } = useForm({
         password: '',
     });
 
@@ -21,10 +22,25 @@ export default function ConfirmPassword() {
         setData(event.target.name, event.target.value);
     };
 
-    const submit = (e) => {
+    const submit = async (e) => {
         e.preventDefault();
 
-        post(route('password.confirm'));
+        clearErrors();
+        try {
+            await axios.post(route('password.confirm'), data);
+            router.visit(route('dashboard'));
+        } catch (error) {
+            const payload = error?.response?.data;
+            const fieldErrors = payload?.errors ?? {};
+            if (Object.keys(fieldErrors).length > 0) {
+                Object.entries(fieldErrors).forEach(([field, messages]) => {
+                    const message = Array.isArray(messages) ? messages[0] : messages;
+                    setError(field, message);
+                });
+                return;
+            }
+            setError('password', payload?.message ?? 'No se pudo confirmar el password.');
+        }
     };
 
     return (
